@@ -27,32 +27,32 @@ class _LoginPageState extends State<LoginPage> {
   }
 
   Future<void> _handleLogin() async {
-    if (!_formKey.currentState!.validate()) return;
+  if (!_formKey.currentState!.validate()) return;
 
+  setState(() {
+    _isLoading = true;
+    _errorMessage = null;
+  });
+
+  final result = await AuthService.login(
+    _emailController.text.trim(),
+    _passwordController.text,
+  );
+
+  if (!mounted) return;
+
+  if (result["success"] == true) {
+    Provider.of<AuthProvider>(context, listen: false)
+        .login(result["token"], result["user"]); // pass both token and user
+
+    Navigator.pushReplacementNamed(context, '/home');
+  } else {
     setState(() {
-      _isLoading = true;
-      _errorMessage = null;
+      _errorMessage = result["message"] ?? "Login failed. Please try again.";
+      _isLoading = false;
     });
-
-    final result = await AuthService.login(
-      _emailController.text.trim(),
-      _passwordController.text,
-    );
-
-    if (!mounted) return;
-
-    if (result["success"]) {
-      Provider.of<AuthProvider>(context, listen: false).login(result["token"]);
-
-      // Navigate to home — replace LoginPage so user can't go back
-      Navigator.pushReplacementNamed(context, '/home');
-    } else {
-      setState(() {
-        _errorMessage = result["message"] ?? "Login failed. Please try again.";
-        _isLoading = false;
-      });
-    }
   }
+}
 
   @override
   Widget build(BuildContext context) {
