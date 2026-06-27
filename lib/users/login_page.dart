@@ -42,7 +42,7 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
 
     if (result["success"]) {
-      Provider.of<AuthProvider>(context, listen: false).login(result["token"]);
+      Provider.of<AuthProvider>(context, listen: false).login(result["token"], result["user"]);
 
       // Navigate to home — replace LoginPage so user can't go back
       Navigator.pushReplacementNamed(context, '/home');
