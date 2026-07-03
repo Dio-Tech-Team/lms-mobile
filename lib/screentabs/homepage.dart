@@ -49,7 +49,7 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  Future<void> _goToApplyLeave() async{
+  Future<void> _goToApplyLeave() async {
     final credits = (_creditData?["credits"] as List<dynamic>? ?? []);
 
     final submitted = await Navigator.push(
@@ -61,7 +61,7 @@ class _HomePageState extends State<HomePage> {
 
     if (submitted == true) {
       _loadCredits();
-      if (mounted){
+      if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Leave application submitted successfully!')),
         );
@@ -165,7 +165,6 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-
       bottomNavigationBar: BottomAppBar(
         color: Colors.white,
         elevation: 8,
@@ -197,7 +196,6 @@ class _HomePageState extends State<HomePage> {
         shape: const CircleBorder(),
         child: const Icon(Icons.add, color: Colors.white, size: 28),
       ),
-
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       body: _isLoading
           ? const Center(
@@ -240,7 +238,6 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       const SizedBox(height: 16),
-
                       Container(
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
@@ -373,7 +370,6 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       const SizedBox(height: 24),
-
                       const Text(
                         'By Leave Type',
                         style: TextStyle(
@@ -383,7 +379,6 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       const SizedBox(height: 14),
-
                       GridView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
