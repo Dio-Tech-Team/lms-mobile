@@ -24,12 +24,16 @@ class AuthService {
           "success": true,
           "token": data["token"],
 <<<<<<< HEAD
+<<<<<<< HEAD
           "user": data["user"],
         };
       } else if (response.statusCode == 401) {
         return {
           "success": false,
           "message": data["message"] ?? "Invalid email or password.",
+=======
+          "user": data["user"], // id, username, email, role
+>>>>>>> login_branch
 =======
           "user": data["user"], // id, username, email, role
 >>>>>>> login_branch
