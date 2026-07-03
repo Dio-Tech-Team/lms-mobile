@@ -49,25 +49,48 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
-  Future<void> _goToApplyLeave() async{
-    final credits = (_creditData?["credits"] as List<dynamic>? ?? []);
+  Future<void> _goToApplyLeave() async {
+  final credits = (_creditData?["credits"] as List<dynamic>? ?? []);
 
-    final submitted = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ApplyForLeave(leaveTypes: credits),
-      ),
-    );
+  final result = await Navigator.push(
+    context,
+    MaterialPageRoute(
+      builder: (context) => ApplyForLeave(leaveTypes: credits),
+    ),
+  );
 
-    if (submitted == true) {
-      _loadCredits();
-      if (mounted){
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Leave application submitted successfully!')),
-        );
+  if (result is Map && result['success'] == true) {
+    final leaveConfigId = result['leaveConfigurationId'];
+    final daysApplied = result['daysApplied'] as double;
+
+    // Optimistic update so the balance changes instantly.
+    setState(() {
+      final list = _creditData?["credits"] as List<dynamic>?;
+      if (list != null) {
+        final idx = list.indexWhere((c) =>
+            c["leave_configuration_id"] == leaveConfigId ||
+            c["id"] == leaveConfigId);
+        if (idx != -1) {
+          final currentRemaining =
+              double.tryParse(list[idx]["remaining_balance"].toString()) ?? 0;
+          final currentUsed =
+              double.tryParse(list[idx]["used_credits"].toString()) ?? 0;
+          list[idx]["remaining_balance"] = currentRemaining - daysApplied;
+          list[idx]["used_credits"] = currentUsed + daysApplied;
+        }
       }
+    });
+
+    // Reconcile with the server in the background.
+    await _loadCredits();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Leave application submitted successfully!')),
+      );
     }
   }
+}
 
   double _toDouble(dynamic value) =>
       double.parse(value?.toString() ?? '0');
