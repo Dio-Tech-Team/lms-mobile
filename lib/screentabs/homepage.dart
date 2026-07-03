@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../services/leave_credit_service.dart';
 import '../users/login_page.dart';
+import '../screentabs/apply_for_leave.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -48,6 +49,26 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  Future<void> _goToApplyLeave() async{
+    final credits = (_creditData?["credits"] as List<dynamic>? ?? []);
+
+    final submitted = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ApplyForLeave(leaveTypes: credits),
+      ),
+    );
+
+    if (submitted == true) {
+      _loadCredits();
+      if (mounted){
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Leave application submitted successfully!')),
+        );
+      }
+    }
+  }
+
   double _toDouble(dynamic value) =>
       double.parse(value?.toString() ?? '0');
 
@@ -70,18 +91,16 @@ class _HomePageState extends State<HomePage> {
         elevation: 0,
         automaticallyImplyLeading: false,
         title: const Text(
-          'My Leave Credits',
+          'Home',
           style: TextStyle(color: Colors.white),
         ),
         actions: [
-          // Notification icon
           Stack(
             alignment: Alignment.center,
             children: [
               IconButton(
                 icon: const Icon(Icons.notifications_outlined, color: Colors.white),
                 onPressed: () {
-                  // TODO: navigate to notifications
                 },
               ),
               Positioned(
@@ -98,7 +117,6 @@ class _HomePageState extends State<HomePage> {
               ),
             ],
           ),
-          // Logout icon
           IconButton(
             icon: const Icon(Icons.logout, color: Colors.white),
             onPressed: () async {
@@ -147,7 +165,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      // ── Bottom Navigation Bar ────────────────────────────────────────
+
       bottomNavigationBar: BottomAppBar(
         color: Colors.white,
         elevation: 8,
@@ -158,15 +176,12 @@ class _HomePageState extends State<HomePage> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              // Home
               _bottomNavItem(
                 icon: Icons.home_rounded,
                 label: 'Home',
                 index: 0,
               ),
-              // Gap for FAB
               const SizedBox(width: 48),
-              // Profile
               _bottomNavItem(
                 icon: Icons.person_outline_rounded,
                 label: 'Profile',
@@ -178,12 +193,11 @@ class _HomePageState extends State<HomePage> {
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.deepPurple,
-        onPressed: () {
-          // TODO: navigate to Apply Leave
-        },
+        onPressed: _goToApplyLeave,
         shape: const CircleBorder(),
         child: const Icon(Icons.add, color: Colors.white, size: 28),
       ),
+
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       body: _isLoading
           ? const Center(
@@ -198,7 +212,6 @@ class _HomePageState extends State<HomePage> {
                   child: ListView(
                     padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
                     children: [
-                      // ── Welcome Card ─────────────────────────────────
                       Container(
                         width: double.infinity,
                         padding: const EdgeInsets.all(20),
@@ -228,7 +241,6 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(height: 16),
 
-                      // ── Leave Balance Summary Card ────────────────────
                       Container(
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
@@ -362,7 +374,6 @@ class _HomePageState extends State<HomePage> {
                       ),
                       const SizedBox(height: 24),
 
-                      // ── By Leave Type ─────────────────────────────────
                       const Text(
                         'By Leave Type',
                         style: TextStyle(
