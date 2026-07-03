@@ -23,17 +23,28 @@ class AuthService {
         return {
           "success": true,
           "token": data["token"],
+<<<<<<< HEAD
+<<<<<<< HEAD
           "user": data["user"],
         };
       } else if (response.statusCode == 401) {
         return {
           "success": false,
           "message": data["message"] ?? "Invalid email or password.",
+=======
+          "user": data["user"], // id, username, email, role
+>>>>>>> login_branch
+=======
+          "user": data["user"], // id, username, email, role
+>>>>>>> login_branch
         };
       } else if (response.statusCode == 422) {
+        // Get first validation error message
+        final errors = data["errors"] as Map<String, dynamic>?;
+        final firstError = errors?.values.first?.first ?? "Validation failed.";
         return {
           "success": false,
-          "errors": data["errors"] ?? {"form": ["Validation failed."]},
+          "message": firstError,
         };
       } else {
         return {

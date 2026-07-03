@@ -50,47 +50,55 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _goToApplyLeave() async {
-  final credits = (_creditData?["credits"] as List<dynamic>? ?? []);
+    final credits = (_creditData?["credits"] as List<dynamic>? ?? []);
 
-  final result = await Navigator.push(
-    context,
-    MaterialPageRoute(
-      builder: (context) => ApplyForLeave(leaveTypes: credits),
-    ),
-  );
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => ApplyForLeave(leaveTypes: credits),
+      ),
+    );
 
-  if (result is Map && result['success'] == true) {
-    final leaveConfigId = result['leaveConfigurationId'];
-    final daysApplied = result['daysApplied'] as double;
+    if (result is Map && result['success'] == true) {
+      final leaveConfigId = result['leaveConfigurationId'];
+      final daysApplied = result['daysApplied'] as double;
 
-    // Optimistic update so the balance changes instantly.
-    setState(() {
-      final list = _creditData?["credits"] as List<dynamic>?;
-      if (list != null) {
-        final idx = list.indexWhere((c) =>
-            c["leave_configuration_id"] == leaveConfigId ||
-            c["id"] == leaveConfigId);
-        if (idx != -1) {
-          final currentRemaining =
-              double.tryParse(list[idx]["remaining_balance"].toString()) ?? 0;
-          final currentUsed =
-              double.tryParse(list[idx]["used_credits"].toString()) ?? 0;
-          list[idx]["remaining_balance"] = currentRemaining - daysApplied;
-          list[idx]["used_credits"] = currentUsed + daysApplied;
+      // Optimistic update so the balance changes instantly.
+      setState(() {
+        final list = _creditData?["credits"] as List<dynamic>?;
+        if (list != null) {
+          final idx = list.indexWhere((c) =>
+              c["leave_configuration_id"] == leaveConfigId ||
+              c["id"] == leaveConfigId);
+          if (idx != -1) {
+            final currentRemaining =
+                double.tryParse(list[idx]["remaining_balance"].toString()) ?? 0;
+            final currentUsed =
+                double.tryParse(list[idx]["used_credits"].toString()) ?? 0;
+            list[idx]["remaining_balance"] = currentRemaining - daysApplied;
+            list[idx]["used_credits"] = currentUsed + daysApplied;
+          }
         }
+      });
+
+      // Reconcile with the server in the background.
+      await _loadCredits();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Leave application submitted successfully!')),
+        );
       }
-    });
-
-    // Reconcile with the server in the background.
-    await _loadCredits();
-
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Leave application submitted successfully!')),
-      );
+    } else if (result == true) {
+      // Fallback for older callers that just return `true`.
+      await _loadCredits();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Leave application submitted successfully!')),
+        );
+      }
     }
   }
-}
 
   double _toDouble(dynamic value) =>
       double.parse(value?.toString() ?? '0');
@@ -188,7 +196,6 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-
       bottomNavigationBar: BottomAppBar(
         color: Colors.white,
         elevation: 8,
@@ -220,7 +227,6 @@ class _HomePageState extends State<HomePage> {
         shape: const CircleBorder(),
         child: const Icon(Icons.add, color: Colors.white, size: 28),
       ),
-
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       body: _isLoading
           ? const Center(
@@ -263,7 +269,6 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       const SizedBox(height: 16),
-
                       Container(
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
@@ -396,7 +401,6 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       const SizedBox(height: 24),
-
                       const Text(
                         'By Leave Type',
                         style: TextStyle(
@@ -406,7 +410,6 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                       const SizedBox(height: 14),
-
                       GridView.builder(
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
