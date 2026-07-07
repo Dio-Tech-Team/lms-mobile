@@ -3,7 +3,6 @@ import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../services/leave_credit_service.dart';
 import '../users/login_page.dart';
-import '../screentabs/apply_for_leave.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -30,6 +29,7 @@ class _HomePageState extends State<HomePage> {
     final token = auth.token;
 
     if (employeeId == null) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = "No employee record linked to your account.";
         _isLoading = false;
@@ -39,6 +39,7 @@ class _HomePageState extends State<HomePage> {
 
     final result = await LeaveCreditService.getCredits(employeeId, token!);
 
+    if (!mounted) return;
     setState(() {
       _isLoading = false;
       if (result["success"]) {
@@ -47,26 +48,6 @@ class _HomePageState extends State<HomePage> {
         _errorMessage = result["message"];
       }
     });
-  }
-
-  Future<void> _goToApplyLeave() async {
-    final credits = (_creditData?["credits"] as List<dynamic>? ?? []);
-
-    final submitted = await Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => ApplyForLeave(leaveTypes: credits),
-      ),
-    );
-
-    if (submitted == true) {
-      _loadCredits();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Leave application submitted successfully!')),
-        );
-      }
-    }
   }
 
   double _toDouble(dynamic value) =>
@@ -192,7 +173,9 @@ class _HomePageState extends State<HomePage> {
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.deepPurple,
-        onPressed: _goToApplyLeave,
+        onPressed: () {
+          // TODO
+        },
         shape: const CircleBorder(),
         child: const Icon(Icons.add, color: Colors.white, size: 28),
       ),
