@@ -23,20 +23,12 @@ class AuthService {
         return {
           "success": true,
           "token": data["token"],
-<<<<<<< HEAD
-<<<<<<< HEAD
-          "user": data["user"],
+          "user": data["user"], // id, username, email, role
         };
       } else if (response.statusCode == 401) {
         return {
           "success": false,
           "message": data["message"] ?? "Invalid email or password.",
-=======
-          "user": data["user"], // id, username, email, role
->>>>>>> login_branch
-=======
-          "user": data["user"], // id, username, email, role
->>>>>>> login_branch
         };
       } else if (response.statusCode == 422) {
         // Get first validation error message
