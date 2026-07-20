@@ -30,6 +30,7 @@ class _HomePageState extends State<HomePage> {
     final token = auth.token;
 
     if (employeeId == null) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = "No employee record linked to your account.";
         _isLoading = false;
@@ -39,6 +40,7 @@ class _HomePageState extends State<HomePage> {
 
     final result = await LeaveCreditService.getCredits(employeeId, token!);
 
+    if (!mounted) return;
     setState(() {
       _isLoading = false;
       if (result["success"]) {
@@ -63,7 +65,6 @@ class _HomePageState extends State<HomePage> {
       final leaveConfigId = result['leaveConfigurationId'];
       final daysApplied = result['daysApplied'] as double;
 
-      // Optimistic update so the balance changes instantly.
       setState(() {
         final list = _creditData?["credits"] as List<dynamic>?;
         if (list != null) {
@@ -81,7 +82,6 @@ class _HomePageState extends State<HomePage> {
         }
       });
 
-      // Reconcile with the server in the background.
       await _loadCredits();
 
       if (mounted) {
@@ -90,7 +90,6 @@ class _HomePageState extends State<HomePage> {
         );
       }
     } else if (result == true) {
-      // Fallback for older callers that just return `true`.
       await _loadCredits();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

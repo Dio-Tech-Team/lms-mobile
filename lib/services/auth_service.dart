@@ -23,7 +23,7 @@ class AuthService {
         return {
           "success": true,
           "token": data["token"],
-          "user": data["user"], // id, username, email, role
+          "user": data["user"], 
         };
       } else if (response.statusCode == 401) {
         return {
