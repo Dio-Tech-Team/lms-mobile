@@ -27,7 +27,7 @@ class MyApp extends StatelessWidget {
       ),
       home: const AuthWrapper(),
       routes: {
-        '/home': (context) => const HomePage(),
+        '/home': (context) => const AuthWrapper(),
       },
     );
   }

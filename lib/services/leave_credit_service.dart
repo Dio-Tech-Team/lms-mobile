@@ -3,10 +3,10 @@ import 'package:http/http.dart' as http;
 import '../variables.dart';
 
 class LeaveCreditService {
-  static Future<Map<String, dynamic>> getCredits(int employeeId, String token) async {
+  static Future<Map<String, dynamic>> getCredits(String token) async {
     try {
       final response = await http.get(
-        Uri.parse('$baseUrl/employees/$employeeId/leave-credits'),
+        Uri.parse('$baseUrl/dashboard/balances'),
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json",
@@ -14,12 +14,27 @@ class LeaveCreditService {
         },
       );
 
-      final data = jsonDecode(response.body);
+      final decoded = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
-        return {"success": true, "data": data};
+        // ✅ FIXED: Wraps raw array responses into the map structure HomePage expects
+        if (decoded is List) {
+          return {
+            "success": true,
+            "data": {
+              "credits": decoded,
+              "employee": "",
+              "year": DateTime.now().year,
+            }
+          };
+        }
+        return {"success": true, "data": decoded};
       } else {
-        return {"success": false, "message": data["message"] ?? "Failed to load credits."};
+        String message = "Failed to load credits.";
+        if (decoded is Map<String, dynamic> && decoded.containsKey('message')) {
+          message = decoded['message'];
+        }
+        return {"success": false, "message": message};
       }
     } catch (e) {
       return {"success": false, "message": "Network error: Unable to connect."};

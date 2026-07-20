@@ -43,28 +43,42 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
   bool _isSubmitting = false;
   String? _errorMessage;
 
-  late final List<_LeaveTypeOption> _leaveTypeOptions = _buildLeaveTypeOptions();
+  List<_LeaveTypeOption> get _leaveTypeOptions => _buildLeaveTypeOptions();
 
   List<_LeaveTypeOption> _buildLeaveTypeOptions() {
     final types = widget.leaveTypes ?? [];
-    final seen = <int>{};
+    debugPrint("DEBUG ApplyForLeave received types: $types");
+
     final options = <_LeaveTypeOption>[];
 
-    for (final c in types) {
-      final id = c["leave_configuration_id"] ?? c["id"];
-      if (id == null) continue;
-      final intId = id is int ? id : int.tryParse(id.toString());
-      if (intId == null || seen.contains(intId)) continue;
-      seen.add(intId);
+    for (int i = 0; i < types.length; i++) {
+      final c = types[i];
+      if (c is! Map) continue;
+
+      final rawId = c["leave_configuration_id"] ?? c["id"] ?? c["leave_type_id"];
+      int intId;
+      if (rawId != null) {
+        intId = rawId is int ? rawId : (int.tryParse(rawId.toString()) ?? i + 1);
+      } else {
+        intId = c["code"]?.hashCode ?? (i + 1);
+      }
+
+      final name = (c["name"] ?? c["leave_type"] ?? c["leave_type_name"] ?? "Leave").toString();
+
+      final rawBalance = c["remaining_balance"] ?? c["balance"] ?? c["remaining"] ?? 0;
+      final double balance = rawBalance is num
+          ? rawBalance.toDouble()
+          : (double.tryParse(rawBalance.toString()) ?? 0.0);
 
       options.add(_LeaveTypeOption(
         id: intId,
-        name: (c["leave_type"] ?? "").toString(),
-        code: c["code"]?.toString(),
-        remainingBalance:
-            double.tryParse(c["remaining_balance"]?.toString() ?? '0') ?? 0,
+        name: name,
+        code: c["code"]?.toString() ?? c["leave_type_code"]?.toString(),
+        remainingBalance: balance,
       ));
     }
+    
+    debugPrint("DEBUG Parsed Dropdown Options: ${options.length} item(s)");
     return options;
   }
 
@@ -108,6 +122,11 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
 
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (_selectedLeaveType == null) {
+      setState(() => _errorMessage = 'Please select a leave type.');
+      return;
+    }
 
     if (_startDate == null || _endDate == null) {
       setState(() => _errorMessage = 'Please select both start and end dates.');
@@ -222,7 +241,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                 style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF1E3A5F))),
             const SizedBox(height: 8),
             DropdownButtonFormField<_LeaveTypeOption>(
-              initialValue: _selectedLeaveType,
+              value: _selectedLeaveType,
               decoration: _inputDecoration(hint: 'Select leave type'),
               items: options
                   .map((opt) => DropdownMenuItem(

@@ -31,7 +31,6 @@ class AuthService {
           "message": data["message"] ?? "Invalid email or password.",
         };
       } else if (response.statusCode == 422) {
-        // Get first validation error message
         final errors = data["errors"] as Map<String, dynamic>?;
         final firstError = errors?.values.first?.first ?? "Validation failed.";
         return {
