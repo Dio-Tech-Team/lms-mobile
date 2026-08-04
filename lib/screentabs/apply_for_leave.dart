@@ -2,27 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../services/leave_application_service.dart';
-
-class _LeaveTypeOption {
-  final int id;
-  final String name;
-  final String? code;
-  final double remainingBalance;
-
-  const _LeaveTypeOption({
-    required this.id,
-    required this.name,
-    this.code,
-    required this.remainingBalance,
-  });
-
-  @override
-  bool operator ==(Object other) =>
-      other is _LeaveTypeOption && other.id == id;
-
-  @override
-  int get hashCode => id.hashCode;
-}
+import '../model/leave_type_option.dart';
+import '../utils/date_utils.dart';
+import '../utils/form_styles.dart';
+import '../widgets/date_picker_field.dart';
 
 class ApplyForLeave extends StatefulWidget {
   final List<dynamic>? leaveTypes;
@@ -37,50 +20,14 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
   final _formKey = GlobalKey<FormState>();
   final _reasonController = TextEditingController();
 
-  _LeaveTypeOption? _selectedLeaveType;
+  LeaveTypeOption? _selectedLeaveType;
   DateTime? _startDate;
   DateTime? _endDate;
   bool _isSubmitting = false;
   String? _errorMessage;
 
-  List<_LeaveTypeOption> get _leaveTypeOptions => _buildLeaveTypeOptions();
-
-  List<_LeaveTypeOption> _buildLeaveTypeOptions() {
-    final types = widget.leaveTypes ?? [];
-    debugPrint("DEBUG ApplyForLeave received types: $types");
-
-    final options = <_LeaveTypeOption>[];
-
-    for (int i = 0; i < types.length; i++) {
-      final c = types[i];
-      if (c is! Map) continue;
-
-      final rawId = c["leave_configuration_id"] ?? c["id"] ?? c["leave_type_id"];
-      int intId;
-      if (rawId != null) {
-        intId = rawId is int ? rawId : (int.tryParse(rawId.toString()) ?? i + 1);
-      } else {
-        intId = c["code"]?.hashCode ?? (i + 1);
-      }
-
-      final name = (c["name"] ?? c["leave_type"] ?? c["leave_type_name"] ?? "Leave").toString();
-
-      final rawBalance = c["remaining_balance"] ?? c["balance"] ?? c["remaining"] ?? 0;
-      final double balance = rawBalance is num
-          ? rawBalance.toDouble()
-          : (double.tryParse(rawBalance.toString()) ?? 0.0);
-
-      options.add(_LeaveTypeOption(
-        id: intId,
-        name: name,
-        code: c["code"]?.toString() ?? c["leave_type_code"]?.toString(),
-        remainingBalance: balance,
-      ));
-    }
-    
-    debugPrint("DEBUG Parsed Dropdown Options: ${options.length} item(s)");
-    return options;
-  }
+  List<LeaveTypeOption> get _leaveTypeOptions =>
+      LeaveTypeOption.listFromJson(widget.leaveTypes);
 
   int get _numberOfDays {
     if (_startDate == null || _endDate == null) return 0;
@@ -112,12 +59,6 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
         _endDate = picked;
       }
     });
-  }
-
-  String _formatDate(DateTime? date) {
-    if (date == null) return 'Select date';
-    return '${date.month.toString().padLeft(2, '0')}/'
-        '${date.day.toString().padLeft(2, '0')}/${date.year}';
   }
 
   Future<void> _submit() async {
@@ -240,9 +181,9 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
             const Text('Leave Type',
                 style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF1E3A5F))),
             const SizedBox(height: 8),
-            DropdownButtonFormField<_LeaveTypeOption>(
+            DropdownButtonFormField<LeaveTypeOption>(
               value: _selectedLeaveType,
-              decoration: _inputDecoration(hint: 'Select leave type'),
+              decoration: AppInputDecoration.standard(hint: 'Select leave type'),
               items: options
                   .map((opt) => DropdownMenuItem(
                         value: opt,
@@ -260,17 +201,17 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
             Row(
               children: [
                 Expanded(
-                  child: _DatePickerField(
+                  child: DatePickerField(
                     label: 'Start date',
-                    value: _formatDate(_startDate),
+                    value: formatDate(_startDate),
                     onTap: () => _pickDate(isStart: true),
                   ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
-                  child: _DatePickerField(
+                  child: DatePickerField(
                     label: 'End date',
-                    value: _formatDate(_endDate),
+                    value: formatDate(_endDate),
                     onTap: () => _pickDate(isStart: false),
                   ),
                 ),
@@ -291,7 +232,8 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
             TextFormField(
               controller: _reasonController,
               maxLines: 4,
-              decoration: _inputDecoration(hint: 'Briefly describe your reason for leave (optional)'),
+              decoration: AppInputDecoration.standard(
+                  hint: 'Briefly describe your reason for leave (optional)'),
             ),
             const SizedBox(height: 28),
 
@@ -316,60 +258,6 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                       )
                     : const Text('Submit Request', style: TextStyle(fontSize: 15)),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  InputDecoration _inputDecoration({required String hint}) {
-    return InputDecoration(
-      hintText: hint,
-      filled: true,
-      fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide.none,
-      ),
-    );
-  }
-}
-
-class _DatePickerField extends StatelessWidget {
-  final String label;
-  final String value;
-  final VoidCallback onTap;
-
-  const _DatePickerField({
-    required this.label,
-    required this.value,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(10),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(10),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF8A97A8))),
-            const SizedBox(height: 4),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(value, style: const TextStyle(fontSize: 14)),
-                const Icon(Icons.calendar_today_rounded, size: 16, color: Color(0xFF8A97A8)),
-              ],
             ),
           ],
         ),

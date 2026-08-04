@@ -13,8 +13,7 @@ class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? get user => _user;
   int? get employeeId => _user?['employee_id'];
   bool get isInitializing => _isInitializing;
-
-  /// Call once at app startup to restore a saved session, if any.
+  
   Future<void> tryAutoLogin() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token');

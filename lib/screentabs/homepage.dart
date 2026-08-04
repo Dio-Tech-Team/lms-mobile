@@ -463,7 +463,6 @@ class _HomePageState extends State<HomePage> {
                     ),
     );
   }
-
   Widget _bottomNavItem({required IconData icon, required String label, required int index}) {
     final isSelected = _selectedIndex == index;
     return GestureDetector(
