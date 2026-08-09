@@ -17,7 +17,6 @@ class LeaveCreditService {
       final decoded = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
-        // ✅ FIXED: Wraps raw array responses into the map structure HomePage expects
         if (decoded is List) {
           return {
             "success": true,

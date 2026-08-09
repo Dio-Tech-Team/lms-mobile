@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:printing/printing.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import '../providers/auth_providers.dart';
 import '../services/leave_credit_service.dart';
 import '../services/leave_application_service.dart';
 import '../users/login_page.dart';
 import '../screentabs/apply_for_leave.dart';
-import '../widgets/leave_balance_card.dart';
 import '../widgets/leave_type_card.dart';
+import '../widgets/leave_overview_strips.dart';
 import '../screentabs/profilepage.dart';
+import '../variables.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -23,8 +26,14 @@ class _HomePageState extends State<HomePage> {
   Map<String, dynamic>? _creditData;
   int _selectedIndex = 0;
 
+  String? _employmentStatus;
+  String? _dateHired;
+
   List<dynamic> _pendingApplications = [];
   bool _isLoadingPending = true;
+
+  static const double _leaveTypeCardWidth = 140;
+  static const double _leaveTypeCardHeight = 150;
 
   static const List<Color> _accentColors = [
     Color(0xFF1E3A5F),
@@ -40,6 +49,7 @@ class _HomePageState extends State<HomePage> {
     super.initState();
     _loadCredits();
     _loadPendingApplications();
+    _loadEmploymentStatus();
   }
 
   Future<void> _loadCredits() async {
@@ -66,6 +76,33 @@ class _HomePageState extends State<HomePage> {
         _errorMessage = result["message"];
       }
     });
+  }
+
+  Future<void> _loadEmploymentStatus() async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final token = auth.token;
+    final employeeId = auth.employeeId;
+
+    if (token == null || employeeId == null) return;
+
+    try {
+      final res = await http.get(
+        Uri.parse('$baseUrl/employees/$employeeId'),
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (res.statusCode == 200) {
+        final data = jsonDecode(res.body);
+        if (!mounted) return;
+        setState(() {
+          _employmentStatus = data['employment_status']?.toString();
+          _dateHired = data['date_hired']?.toString();
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _loadPendingApplications() async {
@@ -134,6 +171,23 @@ class _HomePageState extends State<HomePage> {
     } catch (_) {
       return isoDate;
     }
+  }
+
+  String _titleCase(String? value) {
+    if (value == null || value.isEmpty) return '';
+    return value
+        .split('_')
+        .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
+        .join(' ');
+  }
+
+  String _hiredYearRange() {
+    if (_dateHired == null || _dateHired!.isEmpty) return '';
+    final parsed = DateTime.tryParse(_dateHired!);
+    if (parsed == null) return '';
+    final currentYear = int.tryParse(_creditData?["year"]?.toString() ?? '') ??
+        DateTime.now().year;
+    return '${parsed.year}-$currentYear';
   }
 
   Future<void> _goToApplyLeave() async {
@@ -211,6 +265,84 @@ class _HomePageState extends State<HomePage> {
       );
     }
   }
+  
+  Widget _buildWelcomeHeader(
+    Map<String, dynamic>? user, {
+    required double totalDays,
+    required double usedDays,
+    required double remaining,
+    required int pendingCount,
+  }) {
+    final statusLabel = _titleCase(_employmentStatus);
+    final yearRange = _hiredYearRange();
+    final subtitle = [statusLabel, yearRange]
+        .where((s) => s.isNotEmpty)
+        .join(' · ');
+
+    return Container(
+      width: double.infinity,
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [Color(0xFF13224A), Color(0xFF1B3B63)],
+        ),
+        borderRadius: BorderRadius.only(
+          bottomLeft: Radius.circular(24),
+          bottomRight: Radius.circular(24),
+        ),
+      ),
+      child: SafeArea(
+        bottom: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 8, 8, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Hello, ${user?["username"] ?? "User"}!',
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.logout, color: Colors.white),
+                    onPressed: _handleLogout,
+                  ),
+                ],
+              ),
+              if (subtitle.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Padding(
+                  padding: const EdgeInsets.only(right: 20),
+                  child: Text(
+                    subtitle,
+                    style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              LeaveOverviewStrip(
+                totalDays: totalDays,
+                usedDays: usedDays,
+                remaining: remaining,
+                pendingCount: pendingCount,
+                year: _creditData?["year"],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -228,47 +360,10 @@ class _HomePageState extends State<HomePage> {
     final totalDays = credits.fold(0.0, (sum, c) => sum + _toDouble(c["total_credits"]));
     final usedDays = credits.fold(0.0, (sum, c) => sum + _toDouble(c["used_credits"]));
     final remaining = totalDays - usedDays;
-    final overallProgress = totalDays > 0 ? (usedDays / totalDays).clamp(0.0, 1.0) : 0.0;
 
     return Scaffold(
       backgroundColor: const Color(0xFFEEF0F5),
-      appBar: AppBar(
-        backgroundColor: Colors.deepPurple,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: Text(
-          _selectedIndex == 0 ? 'Home' : 'Profile',
-          style: const TextStyle(color: Colors.white),
-        ),
-        actions: [
-          if (_selectedIndex == 0)
-            Stack(
-              alignment: Alignment.center,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.notifications_outlined, color: Colors.white),
-                  onPressed: () {},
-                ),
-                Positioned(
-                  top: 10,
-                  right: 10,
-                  child: Container(
-                    width: 8,
-                    height: 8,
-                    decoration: const BoxDecoration(
-                      color: Colors.redAccent,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          IconButton(
-            icon: const Icon(Icons.logout, color: Colors.white),
-            onPressed: _handleLogout,
-          ),
-        ],
-      ),
+      appBar: null,
       bottomNavigationBar: BottomAppBar(
         color: Colors.white,
         elevation: 8,
@@ -297,91 +392,79 @@ class _HomePageState extends State<HomePage> {
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
       body: _selectedIndex == 1
           ? const ProfilePage()
-          : _isLoading
-              ? const Center(child: CircularProgressIndicator(color: Colors.deepPurple))
-              : _errorMessage != null
-                  ? Center(
-                      child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)))
-                  : RefreshIndicator(
-                      onRefresh: () async {
-                        await _loadCredits();
-                        await _loadPendingApplications();
-                      },
-                      color: Colors.deepPurple,
-                      child: ListView(
-                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+          : RefreshIndicator(
+              onRefresh: () async {
+                await _loadCredits();
+                await _loadPendingApplications();
+                await _loadEmploymentStatus();
+              },
+              color: Colors.deepPurple,
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  _buildWelcomeHeader(
+                    user,
+                    totalDays: totalDays,
+                    usedDays: usedDays,
+                    remaining: remaining,
+                    pendingCount: _pendingApplications.length,
+                  ),
+                  if (_isLoading)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 60),
+                      child: Center(
+                        child: CircularProgressIndicator(color: Colors.deepPurple),
+                      ),
+                    )
+                  else if (_errorMessage != null)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Center(
+                        child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+                      ),
+                    )
+                  else
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(20),
-                            decoration: BoxDecoration(
-                              color: Colors.deepPurple,
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  'Welcome, ${user?["username"] ?? "User"}!',
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 22,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  '${_creditData?["employee"] ?? ""} · ${_creditData?["year"] ?? ""}',
-                                  style: const TextStyle(color: Colors.white70, fontSize: 13),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          LeaveBalanceCard(
-                            totalDays: totalDays,
-                            usedDays: usedDays,
-                            remaining: remaining,
-                            overallProgress: overallProgress,
-                            year: _creditData?["year"],
-                            employeeName: _creditData?["employee"],
-                          ),
-                          const SizedBox(height: 24),
                           const Text(
-                            'By Leave Type',
+                            'Available Leave Type',
                             style: TextStyle(
-                              fontSize: 17,
+                              fontSize: 16,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF1E3A5F),
                             ),
                           ),
                           const SizedBox(height: 14),
-                          GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            itemCount: credits.length,
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                              childAspectRatio: 1.1,
+                          SizedBox(
+                            height: _leaveTypeCardHeight,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              physics: const BouncingScrollPhysics(),
+                              itemCount: credits.length,
+                              separatorBuilder: (_, __) => const SizedBox(width: 12),
+                              itemBuilder: (context, index) {
+                                final credit = credits[index];
+                                return SizedBox(
+                                  width: _leaveTypeCardWidth,
+                                  child: LeaveTypeCard(
+                                    leaveType: credit["leave_type"] ?? credit["name"] ?? "",
+                                    remaining: _toDouble(credit["remaining_balance"]),
+                                    total: _toDouble(credit["total_credits"]),
+                                    used: _toDouble(credit["used_credits"]),
+                                    accentColor: _accentColors[index % _accentColors.length],
+                                  ),
+                                );
+                              },
                             ),
-                            itemBuilder: (context, index) {
-                              final credit = credits[index];
-                              return LeaveTypeCard(
-                                leaveType: credit["leave_type"] ?? credit["name"] ?? "",
-                                remaining: _toDouble(credit["remaining_balance"]),
-                                total: _toDouble(credit["total_credits"]),
-                                used: _toDouble(credit["used_credits"]),
-                                accentColor: _accentColors[index % _accentColors.length],
-                              );
-                            },
                           ),
                           const SizedBox(height: 24),
                           const Text(
                             'Pending Requests',
                             style: TextStyle(
-                              fontSize: 17,
+                              fontSize: 16,
                               fontWeight: FontWeight.bold,
                               color: Color(0xFF1E3A5F),
                             ),
@@ -391,6 +474,7 @@ class _HomePageState extends State<HomePage> {
                             const Center(child: CircularProgressIndicator(color: Colors.deepPurple))
                           else if (_pendingApplications.isEmpty)
                             Container(
+                              width: double.infinity,
                               padding: const EdgeInsets.all(20),
                               decoration: BoxDecoration(
                                 color: Colors.white,
@@ -461,8 +545,12 @@ class _HomePageState extends State<HomePage> {
                         ],
                       ),
                     ),
+                ],
+              ),
+            ),
     );
   }
+
   Widget _bottomNavItem({required IconData icon, required String label, required int index}) {
     final isSelected = _selectedIndex == index;
     return GestureDetector(

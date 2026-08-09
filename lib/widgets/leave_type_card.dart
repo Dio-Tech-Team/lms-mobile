@@ -52,9 +52,12 @@ class LeaveTypeCard extends StatelessWidget {
                   child: Text(
                     leaveType,
                     overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    // Title text only — kept smaller so longer leave type
+                    // names still fit inside the fixed-size card.
                     style: TextStyle(
                       color: accent,
-                      fontSize: 11,
+                      fontSize: 9.5,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
