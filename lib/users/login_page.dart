@@ -19,9 +19,9 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
   String? _errorMessage;
 
-  static const Color _navyDark = Color(0xFF13224A);
+  static const Color _navyLight = Color(0xFF2D5491);
   static const Color _navy = Color(0xFF1B3B63);
-  static const Color _navyButton = Color(0xFF24406B);
+  static const Color _navyDark = Color(0xFF0D1B3A);
 
   @override
   void dispose() {
@@ -61,55 +61,99 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildHeader(),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(28, 8, 28, 24),
+      body: SizedBox.expand(
+        child: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [_navyLight, _navy, _navyDark],
+              stops: [0.0, 0.5, 1.0],
+            ),
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
                 child: Form(
                   key: _formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Text(
-                        "Sign In",
+                      Row(
+                        children: [
+                          Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Colors.tealAccent.withOpacity(0.25),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.tealAccent.withOpacity(0.5)),
+                            ),
+                            alignment: Alignment.center,
+                            child: const Text(
+                              "L",
+                              style: TextStyle(
+                                color: Colors.tealAccent,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          const Text(
+                            "LeaveSync",
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 60),
+
+                      const Text(
+                        "Login",
                         style: TextStyle(
-                          fontSize: 26,
+                          fontSize: 32,
                           fontWeight: FontWeight.bold,
-                          color: _navy,
+                          color: Colors.white,
                         ),
                       ),
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 8),
+                      Text(
+                        "Sign in to manage your leave applications.",
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.7),
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 32),
 
                       if (_errorMessage != null) ...[
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.red.shade50,
+                            color: Colors.red.withOpacity(0.15),
                             borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: Colors.red.shade200),
+                            border: Border.all(color: Colors.red.withOpacity(0.4)),
                           ),
                           child: Text(
                             _errorMessage!,
-                            style: TextStyle(color: Colors.red.shade700, fontSize: 13),
+                            style: const TextStyle(color: Colors.white, fontSize: 13),
                             textAlign: TextAlign.center,
                           ),
                         ),
                         const SizedBox(height: 16),
                       ],
 
-                      // Email field — uppercase micro-label + pill field
                       const Text(
                         "YOUR EMAIL",
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF9AA5B4),
+                          color: Colors.white60,
                           letterSpacing: 0.9,
                         ),
                       ),
@@ -117,6 +161,7 @@ class _LoginPageState extends State<LoginPage> {
                       TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.emailAddress,
+                        style: const TextStyle(color: _navy),
                         decoration: _fieldDecoration(hint: "you@example.com"),
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
@@ -131,13 +176,12 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 18),
 
-                      // Password field — uppercase micro-label + pill field
                       const Text(
                         "PASSWORD",
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF9AA5B4),
+                          color: Colors.white60,
                           letterSpacing: 0.9,
                         ),
                       ),
@@ -145,6 +189,7 @@ class _LoginPageState extends State<LoginPage> {
                       TextFormField(
                         controller: _passwordController,
                         obscureText: _obscurePassword,
+                        style: const TextStyle(color: _navy),
                         decoration: _fieldDecoration(
                           hint: "••••••••",
                           suffixIcon: IconButton(
@@ -170,16 +215,15 @@ class _LoginPageState extends State<LoginPage> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 28),
+                      const SizedBox(height: 32),
 
-                      // Login button — solid navy, fully pill-shaped
                       SizedBox(
                         height: 52,
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: _navyButton,
-                            foregroundColor: Colors.white,
+                            backgroundColor: Colors.white,
+                            foregroundColor: _navy,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(30),
@@ -190,12 +234,12 @@ class _LoginPageState extends State<LoginPage> {
                                   height: 22,
                                   width: 22,
                                   child: CircularProgressIndicator(
-                                    color: Colors.white,
+                                    color: _navy,
                                     strokeWidth: 2.5,
                                   ),
                                 )
                               : const Text(
-                                  "Sign In",
+                                  "Login",
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w600,
@@ -203,12 +247,30 @@ class _LoginPageState extends State<LoginPage> {
                                 ),
                         ),
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 18),
+
+                      Center(
+                        child: RichText(
+                          text: TextSpan(
+                            text: "Forgot your password? ",
+                            style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12.5),
+                            children: const [
+                              TextSpan(
+                                text: "Reset",
+                                style: TextStyle(
+                                  color: Colors.tealAccent,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -224,8 +286,7 @@ class _LoginPageState extends State<LoginPage> {
       hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: const Color(0xFFF5F6FA),
-      // Fully pill-shaped, matching the reference
+      fillColor: Colors.white,
       contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(30),
@@ -237,7 +298,7 @@ class _LoginPageState extends State<LoginPage> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(30),
-        borderSide: const BorderSide(color: _navy, width: 1.4),
+        borderSide: const BorderSide(color: Colors.tealAccent, width: 1.6),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(30),
@@ -245,95 +306,4 @@ class _LoginPageState extends State<LoginPage> {
       ),
     );
   }
-
-  Widget _buildHeader() {
-    return ClipPath(
-      clipper: _HeaderClipper(),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.fromLTRB(28, 48, 28, 72),
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [_navyDark, _navy],
-          ),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: Colors.tealAccent.withOpacity(0.25),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.tealAccent.withOpacity(0.5)),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Text(
-                    "L",
-                    style: TextStyle(
-                      color: Colors.tealAccent,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 18,
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                const Text(
-                  "LeaveSync",
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 32),
-            const Text(
-              "Welcome back",
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 26,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              "Sign in to manage your leave applications and view your records.",
-              style: TextStyle(
-                color: Colors.white.withOpacity(0.7),
-                fontSize: 13,
-                height: 1.4,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _HeaderClipper extends CustomClipper<Path> {
-  @override
-  Path getClip(Size size) {
-    final path = Path();
-    path.lineTo(0, size.height - 36);
-    path.quadraticBezierTo(
-      size.width / 2,
-      size.height,
-      size.width,
-      size.height - 36,
-    );
-    path.lineTo(size.width, 0);
-    path.close();
-    return path;
-  }
-
-  @override
-  bool shouldReclip(covariant CustomClipper<Path> oldClipper) => false;
 }
