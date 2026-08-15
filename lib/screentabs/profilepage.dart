@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
@@ -18,12 +19,16 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage> {
+class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   Map<String, dynamic>? _employee;
   List<Map<String, dynamic>> _leaveLogs = [];
   Map<String, dynamic>? _creditData;
   bool _isLoading = true;
   String? _errorMessage;
+
+  Timer? _refreshTimer;
+  static const Duration _networkTimeout = Duration(seconds: 10);
+  static const Duration _refreshInterval = Duration(seconds: 10);
 
   static const Color _navy = Color(0xFF1E3A5F);
   static const Color _muted = Color(0xFF8A97A8);
@@ -31,23 +36,45 @@ class _ProfilePageState extends State<ProfilePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _loadAll();
+
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
+      if (mounted) _loadAll(silent: true);
+    });
   }
 
-  Future<void> _loadAll() async {
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      _loadAll(silent: true);
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadAll({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final token = auth.token;
     final employeeId = auth.employeeId;
 
     if (token == null || employeeId == null) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = 'No employee record linked to your account.';
+        if (!silent) _errorMessage = 'No employee record linked to your account.';
       });
       return;
     }
@@ -55,10 +82,12 @@ class _ProfilePageState extends State<ProfilePage> {
     try {
       final results = await Future.wait([
         _fetchEmployee(token: token, employeeId: employeeId),
-        LeaveApplicationService.getMyApplications(token: token, status: 'approved'),
-        LeaveApplicationService.getMyApplications(token: token, status: 'cancelled'),
-        LeaveCreditService.getCredits(token),
-      ]);
+        LeaveApplicationService.getMyApplications(token: token, status: 'approved')
+            .timeout(_networkTimeout),
+        LeaveApplicationService.getMyApplications(token: token, status: 'cancelled')
+            .timeout(_networkTimeout),
+        LeaveCreditService.getCredits(token).timeout(_networkTimeout),
+      ]).timeout(_networkTimeout + const Duration(seconds: 2));
 
       final employeeResult = results[0] as Map<String, dynamic>;
       final approvedResult = results[1] as Map<String, dynamic>;
@@ -66,9 +95,12 @@ class _ProfilePageState extends State<ProfilePage> {
       final creditResult = results[3] as Map<String, dynamic>;
 
       if (employeeResult['success'] != true) {
+        if (!mounted) return;
         setState(() {
           _isLoading = false;
-          _errorMessage = employeeResult['message'] ?? 'Failed to load profile.';
+          if (!silent) {
+            _errorMessage = employeeResult['message'] ?? 'Failed to load profile.';
+          }
         });
         return;
       }
@@ -92,12 +124,15 @@ class _ProfilePageState extends State<ProfilePage> {
         _leaveLogs = logs;
         _creditData = creditResult['success'] == true ? creditResult['data'] : null;
         _isLoading = false;
+        _errorMessage = null;
       });
     } catch (e) {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = 'Something went wrong loading your profile.';
+        if (!silent) {
+          _errorMessage = 'Something went wrong loading your profile.';
+        }
       });
     }
   }
@@ -107,13 +142,15 @@ class _ProfilePageState extends State<ProfilePage> {
     required int employeeId,
   }) async {
     try {
-      final res = await http.get(
-        Uri.parse('$baseUrl/employees/$employeeId'),
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
+      final res = await http
+          .get(
+            Uri.parse('$baseUrl/employees/$employeeId'),
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(_networkTimeout);
 
       if (res.statusCode == 200) {
         return {'success': true, 'data': jsonDecode(res.body)};
@@ -136,26 +173,34 @@ class _ProfilePageState extends State<ProfilePage> {
       builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.deepPurple)),
     );
 
-    final result = await LeaveApplicationService.getApplicationPdfBytes(
-      applicationId: applicationId is int ? applicationId : int.parse(applicationId.toString()),
-      token: token,
-    );
+    try {
+      final result = await LeaveApplicationService.getApplicationPdfBytes(
+        applicationId: applicationId is int ? applicationId : int.parse(applicationId.toString()),
+        token: token,
+      ).timeout(_networkTimeout);
 
-    if (!mounted) return;
-    Navigator.pop(context);
+      if (!mounted) return;
+      Navigator.pop(context);
 
-    if (result['success'] != true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['message'] ?? 'Unable to load PDF.')),
+      if (result['success'] != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['message'] ?? 'Unable to load PDF.')),
+        );
+        return;
+      }
+
+      final bytes = result['bytes'];
+      await Printing.layoutPdf(
+        onLayout: (format) async => bytes,
+        name: 'leave-application-$applicationId.pdf',
       );
-      return;
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Request timed out. Please try again.')),
+      );
     }
-
-    final bytes = result['bytes'];
-    await Printing.layoutPdf(
-      onLayout: (format) async => bytes,
-      name: 'leave-application-$applicationId.pdf',
-    );
   }
 
   Future<void> _handleLogout() async {
@@ -280,10 +325,8 @@ class _ProfilePageState extends State<ProfilePage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Employee info now comes first...
                   _buildInfoCard(),
                   const SizedBox(height: 24),
-                  // ...followed by the leave balance card.
                   if (_creditData != null) ...[
                     LeaveBalanceCard(
                       totalDays: totalDays,

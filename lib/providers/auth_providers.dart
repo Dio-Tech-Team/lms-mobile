@@ -1,19 +1,30 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
+import '../variables.dart';
 
 class AuthProvider extends ChangeNotifier {
   bool _isLoggedIn = false;
   String? _token;
   Map<String, dynamic>? _user;
   bool _isInitializing = true;
+  Map<String, dynamic>? _employee;
+  bool _isLoadingEmployee = false;
+
+  static const Duration _networkTimeout = Duration(seconds: 10);
 
   bool get isLoggedIn => _isLoggedIn;
   String? get token => _token;
   Map<String, dynamic>? get user => _user;
   int? get employeeId => _user?['employee_id'];
   bool get isInitializing => _isInitializing;
-  
+
+  Map<String, dynamic>? get employee => _employee;
+  bool get isLoadingEmployee => _isLoadingEmployee;
+  String? get employmentStatus => _employee?['employment_status']?.toString();
+  String? get dateHired => _employee?['date_hired']?.toString();
+
   Future<void> tryAutoLogin() async {
     final prefs = await SharedPreferences.getInstance();
     final token = prefs.getString('auth_token');
@@ -45,11 +56,42 @@ class AuthProvider extends ChangeNotifier {
     _token = null;
     _user = null;
     _isLoggedIn = false;
+    _employee = null;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('auth_token');
     await prefs.remove('auth_user');
 
     notifyListeners();
+  }
+
+  Future<void> fetchEmployeeDetails({bool silent = false}) async {
+    if (_token == null || employeeId == null) return;
+
+    if (!silent) {
+      _isLoadingEmployee = true;
+      notifyListeners();
+    }
+
+    try {
+      final res = await http
+          .get(
+            Uri.parse('$baseUrl/employees/$employeeId'),
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $_token',
+            },
+          )
+          .timeout(_networkTimeout);
+
+      if (res.statusCode == 200) {
+        _employee = jsonDecode(res.body) as Map<String, dynamic>;
+      }
+    } catch (_) {
+    
+    } finally {
+      _isLoadingEmployee = false;
+      notifyListeners();
+    }
   }
 }

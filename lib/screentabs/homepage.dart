@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:printing/printing.dart';
@@ -20,7 +21,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _isLoading = true;
   String? _errorMessage;
   Map<String, dynamic>? _creditData;
@@ -31,6 +32,11 @@ class _HomePageState extends State<HomePage> {
 
   List<dynamic> _pendingApplications = [];
   bool _isLoadingPending = true;
+
+  Timer? _refreshTimer;
+  static const Duration _networkTimeout = Duration(seconds: 10);
+  static const Duration _pendingRefreshInterval = Duration(seconds: 15);
+  static const Duration _refreshInterval = Duration(seconds: 30);
 
   static const double _leaveTypeCardWidth = 140;
   static const double _leaveTypeCardHeight = 150;
@@ -44,15 +50,45 @@ class _HomePageState extends State<HomePage> {
     Color(0xFFD94F70),
   ];
 
+  Timer? _pendingRefreshTimer;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
     _loadCredits();
     _loadPendingApplications();
     _loadEmploymentStatus();
+    _refreshTimer = Timer.periodic(_refreshInterval, (_) {
+      if (!mounted) return;
+      _loadCredits(silent: true);
+      _loadEmploymentStatus();
+    });
+    _pendingRefreshTimer = Timer.periodic(_pendingRefreshInterval, (_) {
+      if (!mounted) return;
+      _loadPendingApplications(silent: true);
+    });
   }
 
-  Future<void> _loadCredits() async {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadCredits(silent: true);
+      _loadPendingApplications(silent: true);
+      _loadEmploymentStatus();
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _refreshTimer?.cancel();
+    _pendingRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadCredits({bool silent = false}) async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final token = auth.token;
 
@@ -65,17 +101,33 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final result = await LeaveCreditService.getCredits(token);
+    if (!silent) {
+      setState(() => _isLoading = true);
+    }
 
-    if (!mounted) return;
-    setState(() {
-      _isLoading = false;
-      if (result["success"]) {
-        _creditData = result["data"];
-      } else {
-        _errorMessage = result["message"];
-      }
-    });
+    try {
+      final result = await LeaveCreditService.getCredits(token)
+          .timeout(_networkTimeout);
+
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        if (result["success"]) {
+          _creditData = result["data"];
+          _errorMessage = null;
+        } else {
+          if (!silent) _errorMessage = result["message"];
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        if (!silent) {
+          _errorMessage = "Couldn't reach the server. Pull to refresh.";
+        }
+      });
+    }
   }
 
   Future<void> _loadEmploymentStatus() async {
@@ -86,13 +138,15 @@ class _HomePageState extends State<HomePage> {
     if (token == null || employeeId == null) return;
 
     try {
-      final res = await http.get(
-        Uri.parse('$baseUrl/employees/$employeeId'),
-        headers: {
-          'Accept': 'application/json',
-          'Authorization': 'Bearer $token',
-        },
-      );
+      final res = await http
+          .get(
+            Uri.parse('$baseUrl/employees/$employeeId'),
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(_networkTimeout);
 
       if (res.statusCode == 200) {
         final data = jsonDecode(res.body);
@@ -102,10 +156,12 @@ class _HomePageState extends State<HomePage> {
           _dateHired = data['date_hired']?.toString();
         });
       }
-    } catch (_) {}
+    } catch (_) {
+
+    }
   }
 
-  Future<void> _loadPendingApplications() async {
+  Future<void> _loadPendingApplications({bool silent = false}) async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final token = auth.token;
 
@@ -115,18 +171,27 @@ class _HomePageState extends State<HomePage> {
       return;
     }
 
-    final result = await LeaveApplicationService.getMyApplications(
-      token: token,
-      status: 'pending',
-    );
+    if (!silent) {
+      setState(() => _isLoadingPending = true);
+    }
 
-    if (!mounted) return;
-    setState(() {
-      _isLoadingPending = false;
-      if (result['success'] == true) {
-        _pendingApplications = result['data'] as List<dynamic>;
-      }
-    });
+    try {
+      final result = await LeaveApplicationService.getMyApplications(
+        token: token,
+        status: 'pending',
+      ).timeout(_networkTimeout);
+
+      if (!mounted) return;
+      setState(() {
+        _isLoadingPending = false;
+        if (result['success'] == true) {
+          _pendingApplications = result['data'] as List<dynamic>;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoadingPending = false);
+    }
   }
 
   Future<void> _viewPendingPdf(int applicationId) async {
@@ -140,26 +205,34 @@ class _HomePageState extends State<HomePage> {
       builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.deepPurple)),
     );
 
-    final result = await LeaveApplicationService.getApplicationPdfBytes(
-      applicationId: applicationId,
-      token: token,
-    );
+    try {
+      final result = await LeaveApplicationService.getApplicationPdfBytes(
+        applicationId: applicationId,
+        token: token,
+      ).timeout(_networkTimeout);
 
-    if (!mounted) return;
-    Navigator.pop(context);
+      if (!mounted) return;
+      Navigator.pop(context);
 
-    if (result['success'] != true) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(result['message'] ?? 'Unable to load PDF.')),
+      if (result['success'] != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(result['message'] ?? 'Unable to load PDF.')),
+        );
+        return;
+      }
+
+      final bytes = result['bytes'];
+      await Printing.layoutPdf(
+        onLayout: (format) async => bytes,
+        name: 'leave-application-$applicationId.pdf',
       );
-      return;
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Request timed out. Please try again.')),
+      );
     }
-
-    final bytes = result['bytes'];
-    await Printing.layoutPdf(
-      onLayout: (format) async => bytes,
-      name: 'leave-application-$applicationId.pdf',
-    );
   }
 
   String _formatDate(String? isoDate) {
@@ -265,7 +338,7 @@ class _HomePageState extends State<HomePage> {
       );
     }
   }
-  
+
   Widget _buildWelcomeHeader(
     Map<String, dynamic>? user, {
     required double totalDays,
@@ -344,8 +417,7 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildHomeContent() {
     final user = Provider.of<AuthProvider>(context).user;
     final List<dynamic> credits = () {
       if (_creditData is Map) {
@@ -361,6 +433,166 @@ class _HomePageState extends State<HomePage> {
     final usedDays = credits.fold(0.0, (sum, c) => sum + _toDouble(c["used_credits"]));
     final remaining = totalDays - usedDays;
 
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _loadCredits();
+        await _loadPendingApplications();
+        await _loadEmploymentStatus();
+      },
+      color: Colors.deepPurple,
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          _buildWelcomeHeader(
+            user,
+            totalDays: totalDays,
+            usedDays: usedDays,
+            remaining: remaining,
+            pendingCount: _pendingApplications.length,
+          ),
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 60),
+              child: Center(
+                child: CircularProgressIndicator(color: Colors.deepPurple),
+              ),
+            )
+          else if (_errorMessage != null)
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Center(
+                child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+              ),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Available Leave Type',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1E3A5F),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  SizedBox(
+                    height: _leaveTypeCardHeight,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: credits.length,
+                      separatorBuilder: (_, __) => const SizedBox(width: 12),
+                      itemBuilder: (context, index) {
+                        final credit = credits[index];
+                        return SizedBox(
+                          width: _leaveTypeCardWidth,
+                          child: LeaveTypeCard(
+                            leaveType: credit["leave_type"] ?? credit["name"] ?? "",
+                            remaining: _toDouble(credit["remaining_balance"]),
+                            total: _toDouble(credit["total_credits"]),
+                            used: _toDouble(credit["used_credits"]),
+                            accentColor: _accentColors[index % _accentColors.length],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  const Text(
+                    'Pending Requests',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF1E3A5F),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  if (_isLoadingPending)
+                    const Center(child: CircularProgressIndicator(color: Colors.deepPurple))
+                  else if (_pendingApplications.isEmpty)
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(20),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          'No pending requests.',
+                          style: TextStyle(color: Color(0xFF8A97A8)),
+                        ),
+                      ),
+                    )
+                  else
+                    ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _pendingApplications.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 10),
+                      itemBuilder: (context, index) {
+                        final app = _pendingApplications[index] as Map<String, dynamic>;
+                        final leaveType = app['leave_type_name'] ?? 'Leave';
+                        final days = app['days_applied']?.toString() ?? '0';
+                        final start = _formatDate(app['start_date']?.toString());
+                        final end = _formatDate(app['end_date']?.toString());
+                        final id = app['id'];
+
+                        return InkWell(
+                          onTap: id == null ? null : () => _viewPendingPdf(id as int),
+                          child: Container(
+                            padding: const EdgeInsets.all(14),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        leaveType,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 14,
+                                          color: Color(0xFF1E3A5F),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '$start – $end · $days day(s)',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          color: Color(0xFF8A97A8),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const Icon(Icons.picture_as_pdf_outlined,
+                                    color: Color(0xFF8A97A8), size: 20),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFEEF0F5),
       appBar: null,
@@ -390,164 +622,13 @@ class _HomePageState extends State<HomePage> {
             )
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      body: _selectedIndex == 1
-          ? const ProfilePage()
-          : RefreshIndicator(
-              onRefresh: () async {
-                await _loadCredits();
-                await _loadPendingApplications();
-                await _loadEmploymentStatus();
-              },
-              color: Colors.deepPurple,
-              child: ListView(
-                padding: EdgeInsets.zero,
-                children: [
-                  _buildWelcomeHeader(
-                    user,
-                    totalDays: totalDays,
-                    usedDays: usedDays,
-                    remaining: remaining,
-                    pendingCount: _pendingApplications.length,
-                  ),
-                  if (_isLoading)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 60),
-                      child: Center(
-                        child: CircularProgressIndicator(color: Colors.deepPurple),
-                      ),
-                    )
-                  else if (_errorMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Center(
-                        child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
-                      ),
-                    )
-                  else
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Available Leave Type',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1E3A5F),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          SizedBox(
-                            height: _leaveTypeCardHeight,
-                            child: ListView.separated(
-                              scrollDirection: Axis.horizontal,
-                              physics: const BouncingScrollPhysics(),
-                              itemCount: credits.length,
-                              separatorBuilder: (_, __) => const SizedBox(width: 12),
-                              itemBuilder: (context, index) {
-                                final credit = credits[index];
-                                return SizedBox(
-                                  width: _leaveTypeCardWidth,
-                                  child: LeaveTypeCard(
-                                    leaveType: credit["leave_type"] ?? credit["name"] ?? "",
-                                    remaining: _toDouble(credit["remaining_balance"]),
-                                    total: _toDouble(credit["total_credits"]),
-                                    used: _toDouble(credit["used_credits"]),
-                                    accentColor: _accentColors[index % _accentColors.length],
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 24),
-                          const Text(
-                            'Pending Requests',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF1E3A5F),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          if (_isLoadingPending)
-                            const Center(child: CircularProgressIndicator(color: Colors.deepPurple))
-                          else if (_pendingApplications.isEmpty)
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(20),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: const Center(
-                                child: Text(
-                                  'No pending requests.',
-                                  style: TextStyle(color: Color(0xFF8A97A8)),
-                                ),
-                              ),
-                            )
-                          else
-                            ListView.separated(
-                              shrinkWrap: true,
-                              physics: const NeverScrollableScrollPhysics(),
-                              itemCount: _pendingApplications.length,
-                              separatorBuilder: (_, __) => const SizedBox(height: 10),
-                              itemBuilder: (context, index) {
-                                final app = _pendingApplications[index] as Map<String, dynamic>;
-                                final leaveType = app['leave_type_name'] ?? 'Leave';
-                                final days = app['days_applied']?.toString() ?? '0';
-                                final start = _formatDate(app['start_date']?.toString());
-                                final end = _formatDate(app['end_date']?.toString());
-                                final id = app['id'];
-
-                                return InkWell(
-                                  onTap: id == null ? null : () => _viewPendingPdf(id as int),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(14),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                leaveType,
-                                                style: const TextStyle(
-                                                  fontWeight: FontWeight.w600,
-                                                  fontSize: 14,
-                                                  color: Color(0xFF1E3A5F),
-                                                ),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                '$start – $end · $days day(s)',
-                                                style: const TextStyle(
-                                                  fontSize: 12,
-                                                  color: Color(0xFF8A97A8),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                        const Icon(Icons.picture_as_pdf_outlined,
-                                            color: Color(0xFF8A97A8), size: 20),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
+      body: IndexedStack(
+        index: _selectedIndex,
+        children: [
+          _buildHomeContent(),
+          const ProfilePage(),
+        ],
+      ),
     );
   }
 
