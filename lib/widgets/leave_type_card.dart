@@ -6,11 +6,6 @@ class LeaveTypeCard extends StatelessWidget {
   final double total;
   final double used;
   final Color accentColor;
-
-  /// True for accruing types (Vacation Leave, Sick Leave) where both the
-  /// cap and the remaining balance genuinely change over time.
-  /// False for fixed-allocation types (e.g. Wellness Leave), where the
-  /// cap is a static number and only the remaining balance moves.
   final bool isDynamic;
 
   const LeaveTypeCard({
@@ -25,16 +20,14 @@ class LeaveTypeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Progress and the low-balance warning always reflect the real
-    // numbers, regardless of which one is shown as the "big" figure.
     final progress = total > 0 ? (used / total).clamp(0.0, 1.0) : 0.0;
     final isLow = remaining <= 2;
     final accent = isLow ? Colors.red : accentColor;
 
-    // Dynamic types: big number = remaining, subtitle = "of {total} days left".
-    // Static types: big number = total (fixed cap), subtitle = "of {remaining} days left".
-    final bigValue = isDynamic ? remaining : total;
-    final subtitleValue = isDynamic ? total : remaining;
+    // Both dynamic and static types now show the same way:
+    // big number = remaining, subtitle = "of {total} days left".
+    final bigValue = remaining;
+    final subtitleValue = total;
 
     return Container(
       padding: const EdgeInsets.all(14),

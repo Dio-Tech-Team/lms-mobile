@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show PointerDeviceKind;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:printing/printing.dart';
@@ -7,6 +8,7 @@ import 'dart:convert';
 import '../providers/auth_providers.dart';
 import '../services/leave_credit_service.dart';
 import '../services/leave_application_service.dart';
+import '../services/leave_monetization_service.dart';
 import '../users/login_page.dart';
 import '../screentabs/apply_for_leave.dart';
 import '../widgets/leave_type_card.dart';
@@ -31,16 +33,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String? _dateHired;
 
   List<dynamic> _pendingApplications = [];
-  // Used to compute real VL/SL usage for the Overview strip, since the
-  // API's used_credits field isn't reliably updated after approval.
   List<dynamic> _approvedApplications = [];
   bool _isLoadingPending = true;
 
+  List<dynamic> _pendingMonetizations = [];
+  bool _isLoadingMonetizations = true;
+
   Timer? _refreshTimer;
   static const Duration _networkTimeout = Duration(seconds: 10);
-  // Pending requests are the thing users most want to see update quickly
-  // (e.g. right after an approval), so poll them more often than credits.
-  static const Duration _pendingRefreshInterval = Duration(seconds: 15);
   static const Duration _refreshInterval = Duration(seconds: 30);
 
   static const double _leaveTypeCardWidth = 140;
@@ -55,8 +55,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     Color(0xFFD94F70),
   ];
 
-  Timer? _pendingRefreshTimer;
-
   @override
   void initState() {
     super.initState();
@@ -64,37 +62,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     _loadCredits();
     _loadPendingApplications();
+    _loadPendingMonetizations();
     _loadApprovedApplications();
     _loadEmploymentStatus();
-
-    // Silently refresh credits/employment info in the background —
-    // only while the Home tab is actually visible.
     _refreshTimer = Timer.periodic(_refreshInterval, (_) {
       if (!mounted || _selectedIndex != 0) return;
       _loadCredits(silent: true);
       _loadEmploymentStatus();
-    });
-
-    // Pending requests get their own, faster timer since approvals/rejections
-    // should disappear from this list as soon as possible. Approved
-    // applications refresh on the same cadence, since a newly-approved
-    // request is exactly what should update the Overview's "Used" number.
-    _pendingRefreshTimer = Timer.periodic(_pendingRefreshInterval, (_) {
-      if (!mounted || _selectedIndex != 0) return;
       _loadPendingApplications(silent: true);
+      _loadPendingMonetizations(silent: true);
       _loadApprovedApplications(silent: true);
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Timers pause while the app is backgrounded on most platforms, so an
-    // approval that happens while the app was minimized won't show up until
-    // we explicitly refresh here, the moment the user comes back.
-    // Only do this if Home is the visible tab — Profile handles its own.
     if (state == AppLifecycleState.resumed && _selectedIndex == 0) {
       _loadCredits(silent: true);
       _loadPendingApplications(silent: true);
+      _loadPendingMonetizations(silent: true);
       _loadApprovedApplications(silent: true);
       _loadEmploymentStatus();
     }
@@ -104,7 +90,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _refreshTimer?.cancel();
-    _pendingRefreshTimer?.cancel();
     super.dispose();
   }
 
@@ -136,14 +121,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _creditData = result["data"];
           _errorMessage = null;
         } else {
-          if (!silent) _errorMessage = result["message"];
+          if (!silent || _creditData == null) {
+            _errorMessage = result["message"];
+          }
         }
       });
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        if (!silent) {
+        if (!silent || _creditData == null) {
           _errorMessage = "Couldn't reach the server. Pull to refresh.";
         }
       });
@@ -177,7 +164,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         });
       }
     } catch (_) {
-      // Silent by nature already — no UI to show for this one.
+
     }
   }
 
@@ -214,6 +201,39 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  Future<void> _loadPendingMonetizations({bool silent = false}) async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final token = auth.token;
+
+    if (token == null) {
+      if (!mounted) return;
+      setState(() => _isLoadingMonetizations = false);
+      return;
+    }
+
+    if (!silent) {
+      setState(() => _isLoadingMonetizations = true);
+    }
+
+    try {
+      final result = await LeaveMonetizationService.getMyRequests(
+        token: token,
+        status: 'pending',
+      ).timeout(_networkTimeout);
+
+      if (!mounted) return;
+      setState(() {
+        _isLoadingMonetizations = false;
+        if (result['success'] == true) {
+          _pendingMonetizations = result['data'] as List<dynamic>;
+        }
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isLoadingMonetizations = false);
+    }
+  }
+
   Future<void> _loadApprovedApplications({bool silent = false}) async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final token = auth.token;
@@ -232,7 +252,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         });
       }
     } catch (_) {
-      // Silent by design — this is a background/supplementary fetch.
+
     }
   }
 
@@ -275,6 +295,85 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         const SnackBar(content: Text('Request timed out. Please try again.')),
       );
     }
+  }
+
+  void _showMonetizationDetails(Map<String, dynamic> item) {
+    final leaveType = _monetizationTypeName(item);
+    final days = item['days_monetized']?.toString() ?? '0';
+    final reason = (item['reason'] ?? '').toString();
+    final status = (item['status'] ?? 'pending').toString();
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.monetization_on_outlined, color: Colors.deepPurple),
+            SizedBox(width: 10),
+            Text('Monetization Request'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Leave Type: $leaveType'),
+            const SizedBox(height: 6),
+            Text('Days Monetized: $days'),
+            const SizedBox(height: 6),
+            Text('Status: ${_titleCase(status)}'),
+            if (reason.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text('Reason: $reason'),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _monetizationTypeName(Map<String, dynamic> item) {
+    final config = item['leave_configuration'];
+    if (config is Map && config['name'] != null) {
+      return config['name'].toString();
+    }
+    return (item['leave_type_name'] ?? item['leave_type'] ?? 'Leave Monetization')
+        .toString();
+  }
+
+  DateTime _monetizationDate(Map<String, dynamic> item) {
+    return DateTime.tryParse(
+          (item['applied_at'] ?? item['created_at'] ?? '').toString(),
+        ) ??
+        DateTime(1970);
+  }
+
+  DateTime _applicationDate(Map<String, dynamic> app) {
+    return DateTime.tryParse(
+          (app['applied_at'] ?? app['created_at'] ?? '').toString(),
+        ) ??
+        DateTime(1970);
+  }
+
+  /// Merges pending leave applications and pending monetization requests
+  /// into one list, sorted newest first, so both show up together under
+  /// "Pending Requests".
+  List<Map<String, dynamic>> get _combinedPendingItems {
+    final items = <Map<String, dynamic>>[
+      for (final app in _pendingApplications)
+        {'kind': 'leave', 'raw': app, 'date': _applicationDate(app as Map<String, dynamic>)},
+      for (final mon in _pendingMonetizations)
+        {'kind': 'monetization', 'raw': mon, 'date': _monetizationDate(mon as Map<String, dynamic>)},
+    ];
+    items.sort((a, b) => (b['date'] as DateTime).compareTo(a['date'] as DateTime));
+    return items;
   }
 
   String _formatDate(String? isoDate) {
@@ -342,13 +441,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   double _toDouble(dynamic value) =>
       double.tryParse(value?.toString() ?? '0') ?? 0.0;
 
-  /// Maps leave type name -> total approved days_applied. Used instead of
-  /// the API's used_credits field, which isn't reliably updated after an
-  /// application is approved. Needed per-type (not just a VL+SL combined
-  /// sum) because we also use it to reconstruct each type's true total —
-  /// remaining_balance may or may not already be decremented by the
-  /// backend depending on the leave type, so total = remaining + used is
-  /// the only reconstruction that works in both cases.
   Map<String, double> _approvedUsedByType() {
     final map = <String, double>{};
     for (final app in _approvedApplications) {
@@ -358,22 +450,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
     return map;
   }
-
-  // Vacation Leave and Sick Leave accrue monthly, so both their cap
-  // (total_credits) and remaining balance genuinely change over time —
-  // for these we show the numbers exactly as the API sends them.
   static const Set<String> _dynamicLeaveTypes = {
     'Vacation Leave',
     'Sick Leave',
   };
 
-  // Everything else is a fixed, non-accruing allocation. The API's
-  // total_credits field isn't populated for these, so we use a known
-  // fixed cap instead. Update this map to match your actual
-  // leave_configuration values — these are standard PH civil-service
-  // defaults and may not match your setup exactly (e.g. Paternity Leave
-  // is statutorily 7 days, but your data showed a remaining balance of 3,
-  // which could mean days were already used, or your config differs).
   static const Map<String, double> _staticLeaveCaps = {
     'Wellness Leave': 5,
     'VAWC Leave': 10,
@@ -390,12 +471,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   };
 
   bool _isDynamicLeaveType(String name) => _dynamicLeaveTypes.contains(name);
-
-  /// Returns the fixed cap for a static leave type. Falls back to the
-  /// API's total_credits if the type isn't in the map, and if that's
-  /// also 0/missing, falls back to remaining_balance (better to show
-  /// a number that's at least equal to the true entitlement so far,
-  /// than a misleading "of 0").
   double _staticCapFor(String name, double apiTotal, double apiRemaining) {
     final mapped = _staticLeaveCaps[name];
     if (mapped != null) return mapped;
@@ -530,11 +605,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return <dynamic>[];
     }();
     final approvedUsedByType = _approvedUsedByType();
+    final combinedPending = _combinedPendingItems;
+    final isLoadingPendingSection = _isLoadingPending || _isLoadingMonetizations;
 
     return RefreshIndicator(
       onRefresh: () async {
         await _loadCredits();
         await _loadPendingApplications();
+        await _loadPendingMonetizations();
         await _loadApprovedApplications();
         await _loadEmploymentStatus();
       },
@@ -545,7 +623,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _buildWelcomeHeader(
             user,
             credits: credits,
-            pendingCount: _pendingApplications.length,
+            pendingCount: combinedPending.length,
             approvedUsedByType: approvedUsedByType,
           ),
           if (_isLoading)
@@ -579,7 +657,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   const SizedBox(height: 14),
                   SizedBox(
                     height: _leaveTypeCardHeight,
-                    child: ListView.separated(
+                    child: ScrollConfiguration(
+                      behavior: ScrollConfiguration.of(context).copyWith(
+                        dragDevices: {
+                          PointerDeviceKind.touch,
+                          PointerDeviceKind.mouse,
+                          PointerDeviceKind.trackpad,
+                          PointerDeviceKind.stylus,
+                        },
+                      ),
+                      child: ListView.separated(
                       scrollDirection: Axis.horizontal,
                       physics: const BouncingScrollPhysics(),
                       itemCount: credits.length,
@@ -591,12 +678,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         final apiTotal = _toDouble(credit["total_credits"]);
                         final apiRemaining = _toDouble(credit["remaining_balance"]);
                         final isDynamic = _isDynamicLeaveType(leaveTypeName);
-
-                        // total_credits isn't reliably populated by the API for
-                        // ANY leave type, and remaining_balance may or may not
-                        // already be decremented depending on the type — so for
-                        // dynamic types, reconstruct the true total as
-                        // remaining + approved-used rather than assuming either.
                         final approvedUsed = approvedUsedByType[leaveTypeName] ?? 0;
                         final effectiveTotal = isDynamic
                             ? (apiTotal > 0 ? apiTotal : apiRemaining + approvedUsed)
@@ -617,6 +698,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         );
                       },
                     ),
+                    ),
                   ),
                   const SizedBox(height: 24),
                   const Text(
@@ -628,9 +710,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ),
                   ),
                   const SizedBox(height: 14),
-                  if (_isLoadingPending)
+                  if (isLoadingPendingSection)
                     const Center(child: CircularProgressIndicator(color: Colors.deepPurple))
-                  else if (_pendingApplications.isEmpty)
+                  else if (combinedPending.isEmpty)
                     Container(
                       width: double.infinity,
                       padding: const EdgeInsets.all(20),
@@ -649,10 +731,59 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
-                      itemCount: _pendingApplications.length,
+                      itemCount: combinedPending.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
-                        final app = _pendingApplications[index] as Map<String, dynamic>;
+                        final entry = combinedPending[index];
+                        final kind = entry['kind'] as String;
+
+                        if (kind == 'monetization') {
+                          final item = entry['raw'] as Map<String, dynamic>;
+                          final leaveType = _monetizationTypeName(item);
+                          final days = item['days_monetized']?.toString() ?? '0';
+
+                          return InkWell(
+                            onTap: () => _showMonetizationDetails(item),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          '$leaveType · Monetization',
+                                          style: const TextStyle(
+                                            fontWeight: FontWeight.w600,
+                                            fontSize: 14,
+                                            color: Color(0xFF1E3A5F),
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          '$days day(s) requested',
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            color: Color(0xFF8A97A8),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(Icons.monetization_on_outlined,
+                                      color: Color(0xFF8A97A8), size: 20),
+                                ],
+                              ),
+                            ),
+                          );
+                        }
+
+                        final app = entry['raw'] as Map<String, dynamic>;
                         final leaveType = app['leave_type_name'] ?? 'Leave';
                         final days = app['days_applied']?.toString() ?? '0';
                         final start = _formatDate(app['start_date']?.toString());
@@ -739,8 +870,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             )
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      // IndexedStack keeps both tabs mounted so switching between them is
-      // instant and ProfilePage doesn't re-run its network calls every time.
       body: IndexedStack(
         index: _selectedIndex,
         children: [
@@ -758,10 +887,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final wasInactive = _selectedIndex != 0 && index == 0;
         setState(() => _selectedIndex = index);
         if (wasInactive) {
-          // Coming back to Home after the timer was paused — catch up now
-          // rather than waiting for the next tick.
           _loadCredits(silent: true);
           _loadPendingApplications(silent: true);
+          _loadPendingMonetizations(silent: true);
           _loadApprovedApplications(silent: true);
           _loadEmploymentStatus();
         }

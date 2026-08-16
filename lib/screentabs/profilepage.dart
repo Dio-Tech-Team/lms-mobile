@@ -8,9 +8,11 @@ import 'dart:convert';
 import '../providers/auth_providers.dart';
 import '../services/leave_application_service.dart';
 import '../services/leave_credit_service.dart';
+import '../services/leave_monetization_service.dart';
 import '../widgets/leave_balance_card.dart';
 import '../widgets/pdf_view_page.dart';
 import '../users/login_page.dart';
+import '../screentabs/apply_for_leave_monetization.dart';
 import '../variables.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -41,11 +43,16 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _loadAll();
-
-    // Silently refresh in the background — but only while this tab is
-    // actually visible, to avoid double-polling the server alongside Home.
-    if (widget.isActive) _startTimer();
+    // IndexedStack keeps this widget mounted even when Home is the visible
+    // tab, so don't burn requests loading data nobody's looking at yet.
+    // didUpdateWidget already does a silent load the moment isActive flips
+    // to true, so the first real visit still populates everything.
+    if (widget.isActive) {
+      _loadAll();
+      _startTimer();
+    } else {
+      _isLoading = false;
+    }
   }
 
   void _startTimer() {
@@ -65,7 +72,10 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive != oldWidget.isActive) {
       if (widget.isActive) {
-        _loadAll(silent: true); // catch up immediately when switching in
+        // First time this tab becomes visible there's nothing loaded yet
+        // (see initState), so show the normal spinner instead of a silent
+        // background refresh popping into an empty state.
+        _loadAll(silent: _employee != null);
         _startTimer();
       } else {
         _stopTimer();
@@ -75,9 +85,6 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Catch up immediately when the app comes back to the foreground,
-    // rather than waiting for the next timer tick — but only if this
-    // tab is the one currently visible.
     if (state == AppLifecycleState.resumed && mounted && widget.isActive) {
       _loadAll(silent: true);
     }
@@ -119,12 +126,14 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         LeaveApplicationService.getMyApplications(token: token, status: 'cancelled')
             .timeout(_networkTimeout),
         LeaveCreditService.getCredits(token).timeout(_networkTimeout),
+        LeaveMonetizationService.getMyRequests(token: token).timeout(_networkTimeout),
       ]).timeout(_networkTimeout + const Duration(seconds: 2));
 
       final employeeResult = results[0] as Map<String, dynamic>;
       final approvedResult = results[1] as Map<String, dynamic>;
       final cancelledResult = results[2] as Map<String, dynamic>;
       final creditResult = results[3] as Map<String, dynamic>;
+      final monetizationResult = results[4] as Map<String, dynamic>;
 
       if (employeeResult['success'] != true) {
         if (!mounted) return;
@@ -139,14 +148,20 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
 
       final List<Map<String, dynamic>> logs = [
         if (approvedResult['success'] == true)
-          ...List<Map<String, dynamic>>.from(approvedResult['data'] ?? []),
+          for (final item in List<Map<String, dynamic>>.from(approvedResult['data'] ?? []))
+            {..._addKind(item, 'leave')},
         if (cancelledResult['success'] == true)
-          ...List<Map<String, dynamic>>.from(cancelledResult['data'] ?? []),
+          for (final item in List<Map<String, dynamic>>.from(cancelledResult['data'] ?? []))
+            {..._addKind(item, 'leave')},
+        if (monetizationResult['success'] == true)
+          for (final item in List<Map<String, dynamic>>.from(monetizationResult['data'] ?? []))
+            if ((item['status'] ?? '').toString().toLowerCase() != 'pending')
+              {..._addKind(item, 'monetization')},
       ];
 
       logs.sort((a, b) {
-        final da = DateTime.tryParse(a['applied_at']?.toString() ?? '') ?? DateTime(1970);
-        final db = DateTime.tryParse(b['applied_at']?.toString() ?? '') ?? DateTime(1970);
+        final da = _logDate(a);
+        final db = _logDate(b);
         return db.compareTo(da);
       });
 
@@ -167,6 +182,15 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         }
       });
     }
+  }
+
+  Map<String, dynamic> _addKind(Map<String, dynamic> item, String kind) {
+    return {...item, '_kind': kind};
+  }
+
+  DateTime _logDate(Map<String, dynamic> item) {
+    final raw = item['applied_at'] ?? item['created_at'] ?? '';
+    return DateTime.tryParse(raw.toString()) ?? DateTime(1970);
   }
 
   Future<Map<String, dynamic>> _fetchEmployee({
@@ -241,6 +265,73 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Request timed out. Please try again.')),
       );
+    }
+  }
+
+  void _showMonetizationDetails(Map<String, dynamic> item) {
+    final leaveType = _monetizationTypeName(item);
+    final days = item['days_monetized']?.toString() ?? '0';
+    final reason = (item['reason'] ?? '').toString();
+    final status = (item['status'] ?? '').toString();
+
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.monetization_on_outlined, color: Colors.deepPurple),
+            SizedBox(width: 10),
+            Text('Monetization Request'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Leave Type: $leaveType'),
+            const SizedBox(height: 6),
+            Text('Days Monetized: $days'),
+            const SizedBox(height: 6),
+            Text('Status: ${_titleCase(status)}'),
+            if (reason.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text('Reason: $reason'),
+            ],
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _monetizationTypeName(Map<String, dynamic> item) {
+    final config = item['leave_configuration'];
+    if (config is Map && config['name'] != null) {
+      return config['name'].toString();
+    }
+    return (item['leave_type_name'] ?? item['leave_type'] ?? 'Leave Monetization')
+        .toString();
+  }
+
+  /// Opens the leave monetization form. If the request was submitted
+  /// successfully, silently refreshes credits/logs so the updated
+  /// balance and pending request show up without a full-page loading spinner.
+  Future<void> _applyForMonetization() async {
+    final submitted = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ApplyForLeaveMonetization(),
+      ),
+    );
+
+    if (submitted == true && mounted) {
+      _loadAll(silent: true);
     }
   }
 
@@ -335,11 +426,6 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       }
       return <dynamic>[];
     }();
-
-    // "Total Credits" here follows civil-service convention: it's the
-    // combined Vacation Leave + Sick Leave balance, not every leave type
-    // summed together (which was always 0 since total_credits isn't
-    // populated for the fixed-allocation types).
     final vlEntry = credits.firstWhere(
       (c) => (c["leave_type"] ?? c["name"] ?? "").toString() == 'Vacation Leave',
       orElse: () => null,
@@ -352,8 +438,6 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     double _vlSlField(dynamic entry, String field) =>
         entry != null ? _toDouble(entry[field]) : 0.0;
 
-    // total_credits isn't reliably populated yet — fall back to
-    // remaining_balance so the card shows real numbers instead of 0.
     final vlTotal = _vlSlField(vlEntry, "total_credits") > 0
         ? _vlSlField(vlEntry, "total_credits")
         : _vlSlField(vlEntry, "remaining_balance");
@@ -366,9 +450,6 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         _vlSlField(vlEntry, "used_credits") + _vlSlField(slEntry, "used_credits");
     final remaining = totalDays - usedDays;
     final overallProgress = totalDays > 0 ? (usedDays / totalDays).clamp(0.0, 1.0) : 0.0;
-
-    // Monetization applies to Vacation Leave only — pull that balance
-    // out separately rather than using the combined VL+SL remaining total.
     final vlMonetizable = _vlSlField(vlEntry, "remaining_balance");
 
     return RefreshIndicator(
@@ -396,10 +477,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Employee info now comes first...
                   _buildInfoCard(),
                   const SizedBox(height: 24),
-                  // ...followed by the leave balance card.
                   if (_creditData != null) ...[
                     LeaveBalanceCard(
                       totalDays: totalDays,
@@ -409,6 +488,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                       vlMonetizable: vlMonetizable,
                       year: _creditData?["year"],
                       employeeName: _creditData?["employee"],
+                      onApplyMonetization: _applyForMonetization,
                     ),
                     const SizedBox(height: 24),
                   ],
@@ -590,6 +670,63 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   }
 
   Widget _buildLeaveLogTile(Map<String, dynamic> item) {
+    final kind = item['_kind'] as String? ?? 'leave';
+
+    if (kind == 'monetization') {
+      final status = (item['status'] ?? '').toString().toLowerCase();
+      final isApproved = status == 'approved';
+      final leaveType = _monetizationTypeName(item);
+      final days = item['days_monetized']?.toString() ?? '0';
+
+      return InkWell(
+        onTap: () => _showMonetizationDetails(item),
+        child: Container(
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                isApproved ? Icons.monetization_on : Icons.money_off,
+                color: isApproved ? Colors.green : Colors.redAccent,
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$leaveType · Monetization',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                        color: _navy,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$days day(s) requested',
+                      style: const TextStyle(fontSize: 12, color: _muted),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                _titleCase(status),
+                style: TextStyle(
+                  color: isApproved ? Colors.green : Colors.redAccent,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
     final status = (item['status'] ?? '').toString().toLowerCase();
     final isApproved = status == 'approved';
     final leaveType = item['leave_type_name']?.toString() ?? 'Leave';

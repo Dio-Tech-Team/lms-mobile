@@ -12,7 +12,7 @@ class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? _employee;
   bool _isLoadingEmployee = false;
 
-  static const Duration _networkTimeout = Duration(seconds: 10);
+  static const Duration _networkTimeout = Duration(seconds: 20);
 
   bool get isLoggedIn => _isLoggedIn;
   String? get token => _token;
@@ -24,6 +24,7 @@ class AuthProvider extends ChangeNotifier {
   bool get isLoadingEmployee => _isLoadingEmployee;
   String? get employmentStatus => _employee?['employment_status']?.toString();
   String? get dateHired => _employee?['date_hired']?.toString();
+  bool get mustChangePassword => _user?['must_change_password'] == true;
 
   Future<void> tryAutoLogin() async {
     final prefs = await SharedPreferences.getInstance();
@@ -48,6 +49,17 @@ class AuthProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('auth_token', token);
     await prefs.setString('auth_user', jsonEncode(user));
+
+    notifyListeners();
+  }
+
+  Future<void> clearMustChangePassword() async {
+    if (_user == null) return;
+
+    _user = {..._user!, 'must_change_password': false};
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('auth_user', jsonEncode(_user));
 
     notifyListeners();
   }
@@ -88,8 +100,6 @@ class AuthProvider extends ChangeNotifier {
         _employee = jsonDecode(res.body) as Map<String, dynamic>;
       }
     } catch (_) {
-      // Network hiccup on a background/silent call — safe to ignore.
-      // The next periodic refresh will retry.
     } finally {
       _isLoadingEmployee = false;
       notifyListeners();

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../services/api_service.dart';
+import '../widgets/change_password.dart';
 
 class LoginPage extends StatefulWidget {
   const LoginPage({super.key});
@@ -46,10 +47,26 @@ class _LoginPageState extends State<LoginPage> {
     if (!mounted) return;
 
     if (result["success"] == true) {
+      final user = result["user"] as Map<String, dynamic>;
       Provider.of<AuthProvider>(context, listen: false)
-          .login(result["token"], result["user"]);
+          .login(result["token"], user);
 
-      Navigator.pushReplacementNamed(context, '/home');
+      // One-time forced password change (e.g. still on a default/admin-set
+      // password) — block access to Home until it's resolved.
+      if (user['must_change_password'] == true) {
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => const ChangePasswordDialog(),
+        );
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Password changed successfully.')),
+        );
+        Navigator.pushReplacementNamed(context, '/home');
+      } else {
+        Navigator.pushReplacementNamed(context, '/home');
+      }
     } else {
       setState(() {
         _errorMessage = result["message"] ?? "Login failed. Please try again.";
