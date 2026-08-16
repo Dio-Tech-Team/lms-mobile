@@ -88,7 +88,8 @@ class AuthProvider extends ChangeNotifier {
         _employee = jsonDecode(res.body) as Map<String, dynamic>;
       }
     } catch (_) {
-    
+      // Network hiccup on a background/silent call — safe to ignore.
+      // The next periodic refresh will retry.
     } finally {
       _isLoadingEmployee = false;
       notifyListeners();

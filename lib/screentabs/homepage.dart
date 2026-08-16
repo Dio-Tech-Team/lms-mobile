@@ -31,10 +31,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String? _dateHired;
 
   List<dynamic> _pendingApplications = [];
+  // Used to compute real VL/SL usage for the Overview strip, since the
+  // API's used_credits field isn't reliably updated after approval.
+  List<dynamic> _approvedApplications = [];
   bool _isLoadingPending = true;
 
   Timer? _refreshTimer;
   static const Duration _networkTimeout = Duration(seconds: 10);
+  // Pending requests are the thing users most want to see update quickly
+  // (e.g. right after an approval), so poll them more often than credits.
   static const Duration _pendingRefreshInterval = Duration(seconds: 15);
   static const Duration _refreshInterval = Duration(seconds: 30);
 
@@ -59,23 +64,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     _loadCredits();
     _loadPendingApplications();
+    _loadApprovedApplications();
     _loadEmploymentStatus();
+
+    // Silently refresh credits/employment info in the background —
+    // only while the Home tab is actually visible.
     _refreshTimer = Timer.periodic(_refreshInterval, (_) {
-      if (!mounted) return;
+      if (!mounted || _selectedIndex != 0) return;
       _loadCredits(silent: true);
       _loadEmploymentStatus();
     });
+
+    // Pending requests get their own, faster timer since approvals/rejections
+    // should disappear from this list as soon as possible. Approved
+    // applications refresh on the same cadence, since a newly-approved
+    // request is exactly what should update the Overview's "Used" number.
     _pendingRefreshTimer = Timer.periodic(_pendingRefreshInterval, (_) {
-      if (!mounted) return;
+      if (!mounted || _selectedIndex != 0) return;
       _loadPendingApplications(silent: true);
+      _loadApprovedApplications(silent: true);
     });
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) {
+    // Timers pause while the app is backgrounded on most platforms, so an
+    // approval that happens while the app was minimized won't show up until
+    // we explicitly refresh here, the moment the user comes back.
+    // Only do this if Home is the visible tab — Profile handles its own.
+    if (state == AppLifecycleState.resumed && _selectedIndex == 0) {
       _loadCredits(silent: true);
       _loadPendingApplications(silent: true);
+      _loadApprovedApplications(silent: true);
       _loadEmploymentStatus();
     }
   }
@@ -157,7 +177,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         });
       }
     } catch (_) {
-
+      // Silent by nature already — no UI to show for this one.
     }
   }
 
@@ -191,6 +211,28 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } catch (_) {
       if (!mounted) return;
       setState(() => _isLoadingPending = false);
+    }
+  }
+
+  Future<void> _loadApprovedApplications({bool silent = false}) async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final token = auth.token;
+    if (token == null) return;
+
+    try {
+      final result = await LeaveApplicationService.getMyApplications(
+        token: token,
+        status: 'approved',
+      ).timeout(_networkTimeout);
+
+      if (!mounted) return;
+      if (result['success'] == true) {
+        setState(() {
+          _approvedApplications = result['data'] as List<dynamic>;
+        });
+      }
+    } catch (_) {
+      // Silent by design — this is a background/supplementary fetch.
     }
   }
 
@@ -300,6 +342,67 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   double _toDouble(dynamic value) =>
       double.tryParse(value?.toString() ?? '0') ?? 0.0;
 
+  /// Maps leave type name -> total approved days_applied. Used instead of
+  /// the API's used_credits field, which isn't reliably updated after an
+  /// application is approved. Needed per-type (not just a VL+SL combined
+  /// sum) because we also use it to reconstruct each type's true total —
+  /// remaining_balance may or may not already be decremented by the
+  /// backend depending on the leave type, so total = remaining + used is
+  /// the only reconstruction that works in both cases.
+  Map<String, double> _approvedUsedByType() {
+    final map = <String, double>{};
+    for (final app in _approvedApplications) {
+      final typeName = (app['leave_type_name'] ?? '').toString();
+      final days = _toDouble(app['days_applied']);
+      map[typeName] = (map[typeName] ?? 0) + days;
+    }
+    return map;
+  }
+
+  // Vacation Leave and Sick Leave accrue monthly, so both their cap
+  // (total_credits) and remaining balance genuinely change over time —
+  // for these we show the numbers exactly as the API sends them.
+  static const Set<String> _dynamicLeaveTypes = {
+    'Vacation Leave',
+    'Sick Leave',
+  };
+
+  // Everything else is a fixed, non-accruing allocation. The API's
+  // total_credits field isn't populated for these, so we use a known
+  // fixed cap instead. Update this map to match your actual
+  // leave_configuration values — these are standard PH civil-service
+  // defaults and may not match your setup exactly (e.g. Paternity Leave
+  // is statutorily 7 days, but your data showed a remaining balance of 3,
+  // which could mean days were already used, or your config differs).
+  static const Map<String, double> _staticLeaveCaps = {
+    'Wellness Leave': 5,
+    'VAWC Leave': 10,
+    'Rehabilitation Leave': 180,
+    'Special Leave Benefits for Women': 60,
+    'Special Emergency (Calamity) Leave': 5,
+    'Adoption Leave': 60,
+    'Study Leave': 180,
+    'Mandatory/Forced Leave': 5,
+    'Maternity Leave': 105,
+    'Paternity Leave': 7,
+    'Special Privilege Leave': 3,
+    'Solo Parent Leave': 7,
+  };
+
+  bool _isDynamicLeaveType(String name) => _dynamicLeaveTypes.contains(name);
+
+  /// Returns the fixed cap for a static leave type. Falls back to the
+  /// API's total_credits if the type isn't in the map, and if that's
+  /// also 0/missing, falls back to remaining_balance (better to show
+  /// a number that's at least equal to the true entitlement so far,
+  /// than a misleading "of 0").
+  double _staticCapFor(String name, double apiTotal, double apiRemaining) {
+    final mapped = _staticLeaveCaps[name];
+    if (mapped != null) return mapped;
+    if (apiTotal > 0) return apiTotal;
+    return apiRemaining;
+  }
+
   Future<void> _handleLogout() async {
     final confirm = await showDialog<bool>(
       context: context,
@@ -341,10 +444,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Widget _buildWelcomeHeader(
     Map<String, dynamic>? user, {
-    required double totalDays,
-    required double usedDays,
-    required double remaining,
+    required List<dynamic> credits,
     required int pendingCount,
+    required Map<String, double> approvedUsedByType,
   }) {
     final statusLabel = _titleCase(_employmentStatus);
     final yearRange = _hiredYearRange();
@@ -404,10 +506,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               ],
               const SizedBox(height: 18),
               LeaveOverviewStrip(
-                totalDays: totalDays,
-                usedDays: usedDays,
-                remaining: remaining,
+                credits: credits,
                 pendingCount: pendingCount,
+                approvedUsedByType: approvedUsedByType,
                 year: _creditData?["year"],
               ),
             ],
@@ -428,15 +529,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
       return <dynamic>[];
     }();
-
-    final totalDays = credits.fold(0.0, (sum, c) => sum + _toDouble(c["total_credits"]));
-    final usedDays = credits.fold(0.0, (sum, c) => sum + _toDouble(c["used_credits"]));
-    final remaining = totalDays - usedDays;
+    final approvedUsedByType = _approvedUsedByType();
 
     return RefreshIndicator(
       onRefresh: () async {
         await _loadCredits();
         await _loadPendingApplications();
+        await _loadApprovedApplications();
         await _loadEmploymentStatus();
       },
       color: Colors.deepPurple,
@@ -445,10 +544,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         children: [
           _buildWelcomeHeader(
             user,
-            totalDays: totalDays,
-            usedDays: usedDays,
-            remaining: remaining,
+            credits: credits,
             pendingCount: _pendingApplications.length,
+            approvedUsedByType: approvedUsedByType,
           ),
           if (_isLoading)
             const Padding(
@@ -488,14 +586,33 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       separatorBuilder: (_, __) => const SizedBox(width: 12),
                       itemBuilder: (context, index) {
                         final credit = credits[index];
+                        final leaveTypeName =
+                            (credit["leave_type"] ?? credit["name"] ?? "").toString();
+                        final apiTotal = _toDouble(credit["total_credits"]);
+                        final apiRemaining = _toDouble(credit["remaining_balance"]);
+                        final isDynamic = _isDynamicLeaveType(leaveTypeName);
+
+                        // total_credits isn't reliably populated by the API for
+                        // ANY leave type, and remaining_balance may or may not
+                        // already be decremented depending on the type — so for
+                        // dynamic types, reconstruct the true total as
+                        // remaining + approved-used rather than assuming either.
+                        final approvedUsed = approvedUsedByType[leaveTypeName] ?? 0;
+                        final effectiveTotal = isDynamic
+                            ? (apiTotal > 0 ? apiTotal : apiRemaining + approvedUsed)
+                            : _staticCapFor(leaveTypeName, apiTotal, apiRemaining);
+
                         return SizedBox(
                           width: _leaveTypeCardWidth,
                           child: LeaveTypeCard(
-                            leaveType: credit["leave_type"] ?? credit["name"] ?? "",
-                            remaining: _toDouble(credit["remaining_balance"]),
-                            total: _toDouble(credit["total_credits"]),
-                            used: _toDouble(credit["used_credits"]),
+                            leaveType: leaveTypeName,
+                            remaining: apiRemaining,
+                            total: effectiveTotal,
+                            used: isDynamic
+                                ? approvedUsed
+                                : _toDouble(credit["used_credits"]),
                             accentColor: _accentColors[index % _accentColors.length],
+                            isDynamic: isDynamic,
                           ),
                         );
                       },
@@ -622,11 +739,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             )
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
+      // IndexedStack keeps both tabs mounted so switching between them is
+      // instant and ProfilePage doesn't re-run its network calls every time.
       body: IndexedStack(
         index: _selectedIndex,
         children: [
           _buildHomeContent(),
-          const ProfilePage(),
+          ProfilePage(isActive: _selectedIndex == 1),
         ],
       ),
     );
@@ -635,7 +754,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Widget _bottomNavItem({required IconData icon, required String label, required int index}) {
     final isSelected = _selectedIndex == index;
     return GestureDetector(
-      onTap: () => setState(() => _selectedIndex = index),
+      onTap: () {
+        final wasInactive = _selectedIndex != 0 && index == 0;
+        setState(() => _selectedIndex = index);
+        if (wasInactive) {
+          // Coming back to Home after the timer was paused — catch up now
+          // rather than waiting for the next tick.
+          _loadCredits(silent: true);
+          _loadPendingApplications(silent: true);
+          _loadApprovedApplications(silent: true);
+          _loadEmploymentStatus();
+        }
+      },
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [

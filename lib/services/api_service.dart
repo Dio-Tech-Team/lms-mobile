@@ -14,7 +14,7 @@ class ApiService {
               "Accept": "application/json",
             },
             body: jsonEncode({
-              "email": email,
+              "login": email,
               "password": password,
             }),
           )

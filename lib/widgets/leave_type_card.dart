@@ -7,6 +7,12 @@ class LeaveTypeCard extends StatelessWidget {
   final double used;
   final Color accentColor;
 
+  /// True for accruing types (Vacation Leave, Sick Leave) where both the
+  /// cap and the remaining balance genuinely change over time.
+  /// False for fixed-allocation types (e.g. Wellness Leave), where the
+  /// cap is a static number and only the remaining balance moves.
+  final bool isDynamic;
+
   const LeaveTypeCard({
     super.key,
     required this.leaveType,
@@ -14,13 +20,21 @@ class LeaveTypeCard extends StatelessWidget {
     required this.total,
     required this.used,
     required this.accentColor,
+    this.isDynamic = true,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Progress and the low-balance warning always reflect the real
+    // numbers, regardless of which one is shown as the "big" figure.
     final progress = total > 0 ? (used / total).clamp(0.0, 1.0) : 0.0;
     final isLow = remaining <= 2;
     final accent = isLow ? Colors.red : accentColor;
+
+    // Dynamic types: big number = remaining, subtitle = "of {total} days left".
+    // Static types: big number = total (fixed cap), subtitle = "of {remaining} days left".
+    final bigValue = isDynamic ? remaining : total;
+    final subtitleValue = isDynamic ? total : remaining;
 
     return Container(
       padding: const EdgeInsets.all(14),
@@ -67,7 +81,7 @@ class LeaveTypeCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            remaining % 1 == 0 ? '${remaining.toInt()}' : '$remaining',
+            bigValue % 1 == 0 ? '${bigValue.toInt()}' : '$bigValue',
             style: TextStyle(
               fontSize: 28,
               fontWeight: FontWeight.bold,
@@ -75,7 +89,7 @@ class LeaveTypeCard extends StatelessWidget {
             ),
           ),
           Text(
-            'of ${total % 1 == 0 ? total.toInt() : total} days left',
+            'of ${subtitleValue % 1 == 0 ? subtitleValue.toInt() : subtitleValue} days left',
             style: const TextStyle(fontSize: 11, color: Color(0xFF8A97A8)),
           ),
           const Spacer(),

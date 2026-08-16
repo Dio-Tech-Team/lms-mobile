@@ -1,19 +1,21 @@
 import 'dart:async';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
-import 'package:printing/printing.dart';
 import 'dart:convert';
 
 import '../providers/auth_providers.dart';
 import '../services/leave_application_service.dart';
 import '../services/leave_credit_service.dart';
 import '../widgets/leave_balance_card.dart';
+import '../widgets/pdf_view_page.dart';
 import '../users/login_page.dart';
 import '../variables.dart';
 
 class ProfilePage extends StatefulWidget {
-  const ProfilePage({super.key});
+  final bool isActive;
+  const ProfilePage({super.key, this.isActive = true});
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -28,7 +30,9 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
 
   Timer? _refreshTimer;
   static const Duration _networkTimeout = Duration(seconds: 10);
-  static const Duration _refreshInterval = Duration(seconds: 10);
+  // Now that only the active tab polls (Home OR Profile, never both at
+  // once), this can stay reasonably fast without tripping rate limits.
+  static const Duration _refreshInterval = Duration(seconds: 20);
 
   static const Color _navy = Color(0xFF1E3A5F);
   static const Color _muted = Color(0xFF8A97A8);
@@ -39,14 +43,42 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _loadAll();
 
+    // Silently refresh in the background — but only while this tab is
+    // actually visible, to avoid double-polling the server alongside Home.
+    if (widget.isActive) _startTimer();
+  }
+
+  void _startTimer() {
+    _refreshTimer?.cancel();
     _refreshTimer = Timer.periodic(_refreshInterval, (_) {
       if (mounted) _loadAll(silent: true);
     });
   }
 
+  void _stopTimer() {
+    _refreshTimer?.cancel();
+    _refreshTimer = null;
+  }
+
+  @override
+  void didUpdateWidget(covariant ProfilePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive != oldWidget.isActive) {
+      if (widget.isActive) {
+        _loadAll(silent: true); // catch up immediately when switching in
+        _startTimer();
+      } else {
+        _stopTimer();
+      }
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && mounted) {
+    // Catch up immediately when the app comes back to the foreground,
+    // rather than waiting for the next timer tick — but only if this
+    // tab is the one currently visible.
+    if (state == AppLifecycleState.resumed && mounted && widget.isActive) {
       _loadAll(silent: true);
     }
   }
@@ -189,10 +221,19 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         return;
       }
 
-      final bytes = result['bytes'];
-      await Printing.layoutPdf(
-        onLayout: (format) async => bytes,
-        name: 'leave-application-$applicationId.pdf',
+      final rawBytes = result['bytes'];
+      final Uint8List bytes = rawBytes is Uint8List
+          ? rawBytes
+          : Uint8List.fromList(List<int>.from(rawBytes as List));
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => PdfViewOnlyPage(
+            bytes: bytes,
+            title: 'Leave Application',
+          ),
+        ),
       );
     } catch (_) {
       if (!mounted) return;
@@ -295,10 +336,40 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       return <dynamic>[];
     }();
 
-    final totalDays = credits.fold(0.0, (sum, c) => sum + _toDouble(c["total_credits"]));
-    final usedDays = credits.fold(0.0, (sum, c) => sum + _toDouble(c["used_credits"]));
+    // "Total Credits" here follows civil-service convention: it's the
+    // combined Vacation Leave + Sick Leave balance, not every leave type
+    // summed together (which was always 0 since total_credits isn't
+    // populated for the fixed-allocation types).
+    final vlEntry = credits.firstWhere(
+      (c) => (c["leave_type"] ?? c["name"] ?? "").toString() == 'Vacation Leave',
+      orElse: () => null,
+    );
+    final slEntry = credits.firstWhere(
+      (c) => (c["leave_type"] ?? c["name"] ?? "").toString() == 'Sick Leave',
+      orElse: () => null,
+    );
+
+    double _vlSlField(dynamic entry, String field) =>
+        entry != null ? _toDouble(entry[field]) : 0.0;
+
+    // total_credits isn't reliably populated yet — fall back to
+    // remaining_balance so the card shows real numbers instead of 0.
+    final vlTotal = _vlSlField(vlEntry, "total_credits") > 0
+        ? _vlSlField(vlEntry, "total_credits")
+        : _vlSlField(vlEntry, "remaining_balance");
+    final slTotal = _vlSlField(slEntry, "total_credits") > 0
+        ? _vlSlField(slEntry, "total_credits")
+        : _vlSlField(slEntry, "remaining_balance");
+
+    final totalDays = vlTotal + slTotal;
+    final usedDays =
+        _vlSlField(vlEntry, "used_credits") + _vlSlField(slEntry, "used_credits");
     final remaining = totalDays - usedDays;
     final overallProgress = totalDays > 0 ? (usedDays / totalDays).clamp(0.0, 1.0) : 0.0;
+
+    // Monetization applies to Vacation Leave only — pull that balance
+    // out separately rather than using the combined VL+SL remaining total.
+    final vlMonetizable = _vlSlField(vlEntry, "remaining_balance");
 
     return RefreshIndicator(
       onRefresh: _loadAll,
@@ -325,14 +396,17 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Employee info now comes first...
                   _buildInfoCard(),
                   const SizedBox(height: 24),
+                  // ...followed by the leave balance card.
                   if (_creditData != null) ...[
                     LeaveBalanceCard(
                       totalDays: totalDays,
                       usedDays: usedDays,
                       remaining: remaining,
                       overallProgress: overallProgress,
+                      vlMonetizable: vlMonetizable,
                       year: _creditData?["year"],
                       employeeName: _creditData?["employee"],
                     ),

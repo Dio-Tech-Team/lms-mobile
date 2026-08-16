@@ -8,18 +8,32 @@ class LeaveBalanceCard extends StatelessWidget {
   final dynamic year;
   final String? employeeName;
 
+  /// Vacation Leave remaining balance only — this is what's eligible
+  /// for monetization (VL only, not combined with Sick Leave).
+  final double vlMonetizable;
+
+  /// Called when the user taps "Apply for Monetization".
+  /// If null, tapping shows a "coming soon" message instead.
+  final VoidCallback? onApplyMonetization;
+
+  static const double monetizationMinimumDays = 10;
+
   const LeaveBalanceCard({
     super.key,
     required this.totalDays,
     required this.usedDays,
     required this.remaining,
     required this.overallProgress,
+    required this.vlMonetizable,
+    this.onApplyMonetization,
     this.year,
     this.employeeName,
   });
 
   @override
   Widget build(BuildContext context) {
+    final isEligible = vlMonetizable >= monetizationMinimumDays;
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -34,7 +48,7 @@ class LeaveBalanceCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'LEAVE BALANCE — ${year ?? DateTime.now().year}',
+            'Your Total Balance for the Year ${year ?? DateTime.now().year}',
             style: const TextStyle(
               color: Colors.white60,
               fontSize: 11,
@@ -87,14 +101,14 @@ class LeaveBalanceCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Remaining',
+                      const Text('Can Monetize',
                           style:
                               TextStyle(color: Colors.white60, fontSize: 12)),
                       const SizedBox(height: 4),
                       Text(
-                        remaining % 1 == 0
-                            ? '${remaining.toInt()}'
-                            : '$remaining',
+                        vlMonetizable % 1 == 0
+                            ? '${vlMonetizable.toInt()}'
+                            : '$vlMonetizable',
                         style: const TextStyle(
                           color: Color(0xFF4EEAAA),
                           fontSize: 32,
@@ -102,7 +116,9 @@ class LeaveBalanceCard extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        '${usedDays % 1 == 0 ? usedDays.toInt() : usedDays} used this year',
+                        isEligible
+                            ? 'Eligible · min. ${monetizationMinimumDays.toInt()} VL days'
+                            : 'Requires min. ${monetizationMinimumDays.toInt()} VL days',
                         style: const TextStyle(
                             color: Colors.white54, fontSize: 11),
                       ),
@@ -113,28 +129,33 @@ class LeaveBalanceCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                'Used: ${usedDays % 1 == 0 ? usedDays.toInt() : usedDays} days',
-                style: const TextStyle(color: Colors.white60, fontSize: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: onApplyMonetization ??
+                  () {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text(
+                          'Monetization application is coming soon.',
+                        ),
+                      ),
+                    );
+                  },
+              icon: const Icon(Icons.savings_outlined, size: 18),
+              label: const Text('Apply for Monetization'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF4EEAAA),
+                foregroundColor: const Color(0xFF13224A),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                textStyle: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
-              Text(
-                '${(overallProgress * 100).toStringAsFixed(0)}% consumed',
-                style: const TextStyle(color: Colors.white60, fontSize: 12),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: LinearProgressIndicator(
-              value: overallProgress,
-              minHeight: 6,
-              backgroundColor: Colors.white.withOpacity(0.15),
-              valueColor:
-                  const AlwaysStoppedAnimation<Color>(Color(0xFF4EEAAA)),
             ),
           ),
         ],
