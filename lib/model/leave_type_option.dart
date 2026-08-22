@@ -16,8 +16,7 @@ class LeaveTypeOption {
   });
 
   @override
-  bool operator ==(Object other) =>
-      other is LeaveTypeOption && other.id == id;
+  bool operator ==(Object other) => other is LeaveTypeOption && other.id == id;
 
   @override
   int get hashCode => id.hashCode;
@@ -35,27 +34,39 @@ class LeaveTypeOption {
       final c = types[i];
       if (c is! Map) continue;
 
-      final rawId = c["leave_configuration_id"] ?? c["id"] ?? c["leave_type_id"];
-      int intId;
+      final rawId =
+          c["leave_configuration_id"] ?? c["id"] ?? c["leave_type_id"];
+      int? intId;
       if (rawId != null) {
-        intId = rawId is int ? rawId : (int.tryParse(rawId.toString()) ?? i + 1);
-      } else {
-        intId = c["code"]?.hashCode ?? (i + 1);
+        intId = rawId is int ? rawId : int.tryParse(rawId.toString());
       }
 
-      final name = (c["name"] ?? c["leave_type"] ?? c["leave_type_name"] ?? "Leave").toString();
+      // No usable real id from the backend — this entry can't be safely
+      // submitted (its id would end up as leave_configuration_id in a
+      // leave application), so skip it rather than inventing one.
+      if (intId == null) {
+        debugPrint("DEBUG LeaveTypeOption skipped entry with no usable id: $c");
+        continue;
+      }
 
-      final rawBalance = c["remaining_balance"] ?? c["balance"] ?? c["remaining"] ?? 0;
+      final name =
+          (c["name"] ?? c["leave_type"] ?? c["leave_type_name"] ?? "Leave")
+              .toString();
+
+      final rawBalance =
+          c["remaining_balance"] ?? c["balance"] ?? c["remaining"] ?? 0;
       final double balance = rawBalance is num
           ? rawBalance.toDouble()
           : (double.tryParse(rawBalance.toString()) ?? 0.0);
 
-      options.add(LeaveTypeOption(
-        id: intId,
-        name: name,
-        code: c["code"]?.toString() ?? c["leave_type_code"]?.toString(),
-        remainingBalance: balance,
-      ));
+      options.add(
+        LeaveTypeOption(
+          id: intId,
+          name: name,
+          code: c["code"]?.toString() ?? c["leave_type_code"]?.toString(),
+          remainingBalance: balance,
+        ),
+      );
     }
 
     debugPrint("DEBUG Parsed Dropdown Options: ${options.length} item(s)");

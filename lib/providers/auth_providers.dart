@@ -20,6 +20,11 @@ class AuthProvider extends ChangeNotifier {
   int? get employeeId => _user?['employee_id'];
   bool get isInitializing => _isInitializing;
 
+  bool get mustChangePassword {
+    final val = _user?['must_change_password'];
+    return val == true || val == 1;
+  }
+
   Map<String, dynamic>? get employee => _employee;
   bool get isLoadingEmployee => _isLoadingEmployee;
   String? get employmentStatus => _employee?['employment_status']?.toString();
@@ -48,6 +53,17 @@ class AuthProvider extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('auth_token', token);
     await prefs.setString('auth_user', jsonEncode(user));
+
+    notifyListeners();
+  }
+
+  Future<void> markPasswordChanged() async {
+    if (_user == null) return;
+
+    _user!['must_change_password'] = false;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('auth_user', jsonEncode(_user));
 
     notifyListeners();
   }

@@ -10,7 +10,7 @@ import '../services/leave_application_service.dart';
 import '../services/leave_credit_service.dart';
 import '../widgets/leave_balance_card.dart';
 import '../widgets/pdf_view_page.dart';
-import '../users/login_page.dart';
+import '../utils/employee_app_utils.dart';
 import '../variables.dart';
 
 class ProfilePage extends StatefulWidget {
@@ -106,7 +106,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        if (!silent) _errorMessage = 'No employee record linked to your account.';
+        if (!silent)
+          _errorMessage = 'No employee record linked to your account.';
       });
       return;
     }
@@ -114,10 +115,14 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     try {
       final results = await Future.wait([
         _fetchEmployee(token: token, employeeId: employeeId),
-        LeaveApplicationService.getMyApplications(token: token, status: 'approved')
-            .timeout(_networkTimeout),
-        LeaveApplicationService.getMyApplications(token: token, status: 'cancelled')
-            .timeout(_networkTimeout),
+        LeaveApplicationService.getMyApplications(
+          token: token,
+          status: 'approved',
+        ).timeout(_networkTimeout),
+        LeaveApplicationService.getMyApplications(
+          token: token,
+          status: 'cancelled',
+        ).timeout(_networkTimeout),
         LeaveCreditService.getCredits(token).timeout(_networkTimeout),
       ]).timeout(_networkTimeout + const Duration(seconds: 2));
 
@@ -131,7 +136,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         setState(() {
           _isLoading = false;
           if (!silent) {
-            _errorMessage = employeeResult['message'] ?? 'Failed to load profile.';
+            _errorMessage =
+                employeeResult['message'] ?? 'Failed to load profile.';
           }
         });
         return;
@@ -145,8 +151,12 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       ];
 
       logs.sort((a, b) {
-        final da = DateTime.tryParse(a['applied_at']?.toString() ?? '') ?? DateTime(1970);
-        final db = DateTime.tryParse(b['applied_at']?.toString() ?? '') ?? DateTime(1970);
+        final da =
+            DateTime.tryParse(a['applied_at']?.toString() ?? '') ??
+            DateTime(1970);
+        final db =
+            DateTime.tryParse(b['applied_at']?.toString() ?? '') ??
+            DateTime(1970);
         return db.compareTo(da);
       });
 
@@ -154,7 +164,9 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       setState(() {
         _employee = employeeResult['data'];
         _leaveLogs = logs;
-        _creditData = creditResult['success'] == true ? creditResult['data'] : null;
+        _creditData = creditResult['success'] == true
+            ? creditResult['data']
+            : null;
         _isLoading = false;
         _errorMessage = null;
       });
@@ -187,9 +199,15 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       if (res.statusCode == 200) {
         return {'success': true, 'data': jsonDecode(res.body)};
       }
-      return {'success': false, 'message': 'Failed to load profile (${res.statusCode})'};
+      return {
+        'success': false,
+        'message': 'Failed to load profile (${res.statusCode})',
+      };
     } catch (e) {
-      return {'success': false, 'message': 'Network error while loading profile.'};
+      return {
+        'success': false,
+        'message': 'Network error while loading profile.',
+      };
     }
   }
 
@@ -202,12 +220,16 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.deepPurple)),
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(color: Colors.deepPurple),
+      ),
     );
 
     try {
       final result = await LeaveApplicationService.getApplicationPdfBytes(
-        applicationId: applicationId is int ? applicationId : int.parse(applicationId.toString()),
+        applicationId: applicationId is int
+            ? applicationId
+            : int.parse(applicationId.toString()),
         token: token,
       ).timeout(_networkTimeout);
 
@@ -229,10 +251,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       Navigator.push(
         context,
         MaterialPageRoute(
-          builder: (_) => PdfViewOnlyPage(
-            bytes: bytes,
-            title: 'Leave Application',
-          ),
+          builder: (_) =>
+              PdfViewOnlyPage(bytes: bytes, title: 'Leave Application'),
         ),
       );
     } catch (_) {
@@ -244,66 +264,19 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _handleLogout() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.warning, color: Colors.red),
-            SizedBox(width: 10),
-            Text('Confirm Logout'),
-          ],
-        ),
-        content: const Text('Do you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('No', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepPurple,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-    if (confirm == true && mounted) {
-      Provider.of<AuthProvider>(context, listen: false).logout();
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-      );
-    }
-  }
-
-  String _formatDate(String? isoDate) {
-    if (isoDate == null || isoDate.isEmpty) return '—';
-    try {
-      final date = DateTime.parse(isoDate);
-      return '${date.month.toString().padLeft(2, '0')}/'
-          '${date.day.toString().padLeft(2, '0')}/${date.year}';
-    } catch (_) {
-      return isoDate;
-    }
-  }
-
   String _fullName() {
     if (_employee == null) return '';
     final first = _employee!['first_name'] ?? '';
     final middle = _employee!['middle_name'];
     final last = _employee!['surname'] ?? '';
-    final middleInitial =
-        (middle is String && middle.isNotEmpty) ? '${middle[0]}.' : '';
-    return [first, middleInitial, last]
-        .where((s) => s.toString().trim().isNotEmpty)
-        .join(' ');
+    final middleInitial = (middle is String && middle.isNotEmpty)
+        ? '${middle[0]}.'
+        : '';
+    return [
+      first,
+      middleInitial,
+      last,
+    ].where((s) => s.toString().trim().isNotEmpty).join(' ');
   }
 
   String _initials() {
@@ -315,33 +288,17 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     return (a + b).toUpperCase();
   }
 
-  String _titleCase(String? value) {
-    if (value == null || value.isEmpty) return '—';
-    return value
-        .split('_')
-        .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
-        .join(' ');
-  }
-
-  double _toDouble(dynamic value) =>
-      double.tryParse(value?.toString() ?? '0') ?? 0.0;
-
   @override
   Widget build(BuildContext context) {
-    final List<dynamic> credits = () {
-      if (_creditData is Map) {
-        if (_creditData!["credits"] is List) return _creditData!["credits"];
-        if (_creditData!["data"] is List) return _creditData!["data"];
-      }
-      return <dynamic>[];
-    }();
+    final credits = extractCreditsList(_creditData);
 
     // "Total Credits" here follows civil-service convention: it's the
     // combined Vacation Leave + Sick Leave balance, not every leave type
     // summed together (which was always 0 since total_credits isn't
     // populated for the fixed-allocation types).
     final vlEntry = credits.firstWhere(
-      (c) => (c["leave_type"] ?? c["name"] ?? "").toString() == 'Vacation Leave',
+      (c) =>
+          (c["leave_type"] ?? c["name"] ?? "").toString() == 'Vacation Leave',
       orElse: () => null,
     );
     final slEntry = credits.firstWhere(
@@ -350,7 +307,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     );
 
     double _vlSlField(dynamic entry, String field) =>
-        entry != null ? _toDouble(entry[field]) : 0.0;
+        entry != null ? toDoubleOrZero(entry[field]) : 0.0;
 
     // total_credits isn't reliably populated yet — fall back to
     // remaining_balance so the card shows real numbers instead of 0.
@@ -363,9 +320,12 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
 
     final totalDays = vlTotal + slTotal;
     final usedDays =
-        _vlSlField(vlEntry, "used_credits") + _vlSlField(slEntry, "used_credits");
+        _vlSlField(vlEntry, "used_credits") +
+        _vlSlField(slEntry, "used_credits");
     final remaining = totalDays - usedDays;
-    final overallProgress = totalDays > 0 ? (usedDays / totalDays).clamp(0.0, 1.0) : 0.0;
+    final overallProgress = totalDays > 0
+        ? (usedDays / totalDays).clamp(0.0, 1.0)
+        : 0.0;
 
     // Monetization applies to Vacation Leave only — pull that balance
     // out separately rather than using the combined VL+SL remaining total.
@@ -381,13 +341,18 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
           if (_isLoading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 60),
-              child: Center(child: CircularProgressIndicator(color: Colors.deepPurple)),
+              child: Center(
+                child: CircularProgressIndicator(color: Colors.deepPurple),
+              ),
             )
           else if (_errorMessage != null)
             Padding(
               padding: const EdgeInsets.all(24),
               child: Center(
-                child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: Colors.red),
+                ),
               ),
             )
           else
@@ -442,7 +407,8 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: _leaveLogs.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
-                      itemBuilder: (context, index) => _buildLeaveLogTile(_leaveLogs[index]),
+                      itemBuilder: (context, index) =>
+                          _buildLeaveLogTile(_leaveLogs[index]),
                     ),
                 ],
               ),
@@ -477,7 +443,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                 children: [
                   IconButton(
                     icon: const Icon(Icons.logout, color: Colors.white),
-                    onPressed: _handleLogout,
+                    onPressed: () => confirmAndLogout(context),
                   ),
                 ],
               ),
@@ -488,7 +454,10 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: Colors.white.withOpacity(0.15),
-                    border: Border.all(color: Colors.white.withOpacity(0.35), width: 2),
+                    border: Border.all(
+                      color: Colors.white.withOpacity(0.35),
+                      width: 2,
+                    ),
                   ),
                   alignment: Alignment.center,
                   child: Text(
@@ -512,18 +481,27 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                 const SizedBox(height: 2),
                 Text(
                   _employee?['position']?.toString() ?? '',
-                  style: TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 13),
+                  style: TextStyle(
+                    color: Colors.white.withOpacity(0.75),
+                    fontSize: 13,
+                  ),
                 ),
                 const SizedBox(height: 10),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 5,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.white.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(color: Colors.white.withOpacity(0.3)),
                   ),
                   child: Text(
-                    _titleCase(_employee?['employment_status']?.toString()),
+                    titleCaseOrPlaceholder(
+                      _employee?['employment_status']?.toString(),
+                      placeholder: '—',
+                    ),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
@@ -553,7 +531,13 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         children: [
           _infoRow('ID Number', _employee?['id_number']),
           _infoRow('Position', _employee?['position']),
-          _infoRow('Date Hired', _formatDate(_employee?['date_hired']?.toString())),
+          _infoRow(
+            'Date Hired',
+            formatIsoDate(
+              _employee?['date_hired']?.toString(),
+              placeholder: '—',
+            ),
+          ),
           _infoRow('Department', _employee?['department']),
           _infoRow('Email', _employee?['email']),
         ],
@@ -593,8 +577,11 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     final status = (item['status'] ?? '').toString().toLowerCase();
     final isApproved = status == 'approved';
     final leaveType = item['leave_type_name']?.toString() ?? 'Leave';
-    final start = _formatDate(item['start_date']?.toString());
-    final end = _formatDate(item['end_date']?.toString());
+    final start = formatIsoDate(
+      item['start_date']?.toString(),
+      placeholder: '—',
+    );
+    final end = formatIsoDate(item['end_date']?.toString(), placeholder: '—');
     final days = item['days_applied']?.toString() ?? '0';
 
     return InkWell(
@@ -645,7 +632,9 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                 ),
                 const SizedBox(height: 6),
                 Icon(
-                  isApproved ? Icons.picture_as_pdf_outlined : Icons.block_rounded,
+                  isApproved
+                      ? Icons.picture_as_pdf_outlined
+                      : Icons.block_rounded,
                   size: 15,
                   color: isApproved ? _muted : _muted.withOpacity(0.5),
                 ),

@@ -3,20 +3,24 @@ import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../services/api_service.dart';
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+class ForceChangePasswordPage extends StatefulWidget {
+  const ForceChangePasswordPage({super.key});
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<ForceChangePasswordPage> createState() =>
+      _ForceChangePasswordPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _ForceChangePasswordPageState extends State<ForceChangePasswordPage> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _currentPasswordController = TextEditingController();
+  final _newPasswordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
 
   bool _isLoading = false;
-  bool _obscurePassword = true;
+  bool _obscureCurrent = true;
+  bool _obscureNew = true;
+  bool _obscureConfirm = true;
   String? _errorMessage;
 
   static const Color _navyLight = Color(0xFF2D5491);
@@ -25,37 +29,71 @@ class _LoginPageState extends State<LoginPage> {
 
   @override
   void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
+    _currentPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
-  Future<void> _handleLogin() async {
+  // Mirrors the backend rule: Password::min(8)->mixedCase()->numbers()->symbols()
+  String? _validateNewPassword(String? value) {
+    if (value == null || value.isEmpty) return "New password is required.";
+    if (value.length < 8) return "Password must be at least 8 characters.";
+    if (!RegExp(r'[a-z]').hasMatch(value)) {
+      return "Password must include a lowercase letter.";
+    }
+    if (!RegExp(r'[A-Z]').hasMatch(value)) {
+      return "Password must include an uppercase letter.";
+    }
+    if (!RegExp(r'[0-9]').hasMatch(value)) {
+      return "Password must include a number.";
+    }
+    if (!RegExp(r'[!@#$%^&*(),.?":{}|<>_\-\[\]\\/`~;+=]').hasMatch(value)) {
+      return "Password must include a symbol.";
+    }
+    return null;
+  }
+
+  Future<void> _handleSubmit() async {
     if (!_formKey.currentState!.validate()) return;
+
+    if (_newPasswordController.text != _confirmPasswordController.text) {
+      setState(() => _errorMessage = "New passwords do not match.");
+      return;
+    }
 
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
-    final result = await ApiService.login(
-      _emailController.text.trim(),
-      _passwordController.text,
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final token = auth.token;
+
+    if (token == null) {
+      setState(() {
+        _isLoading = false;
+        _errorMessage = "You are not logged in.";
+      });
+      return;
+    }
+
+    final result = await ApiService.changePassword(
+      token: token,
+      currentPassword: _currentPasswordController.text,
+      newPassword: _newPasswordController.text,
     );
 
     if (!mounted) return;
 
     if (result["success"] == true) {
-      Provider.of<AuthProvider>(
-        context,
-        listen: false,
-      ).login(result["token"], result["user"]);
-
+      await auth.markPasswordChanged();
+      if (!mounted) return;
       Navigator.pushReplacementNamed(context, '/home');
     } else {
       setState(() {
-        _errorMessage = result["message"] ?? "Login failed. Please try again.";
         _isLoading = false;
+        _errorMessage = result["message"] ?? "Failed to change password.";
       });
     }
   }
@@ -82,58 +120,30 @@ class _LoginPageState extends State<LoginPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: Colors.tealAccent.withOpacity(0.25),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: Colors.tealAccent.withOpacity(0.5),
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: const Text(
-                              "L",
-                              style: TextStyle(
-                                color: Colors.tealAccent,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          const Text(
-                            "LeaveSync",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
+                      const Icon(
+                        Icons.lock_reset_rounded,
+                        color: Colors.tealAccent,
+                        size: 40,
                       ),
-                      const SizedBox(height: 60),
-
+                      const SizedBox(height: 20),
                       const Text(
-                        "Login",
+                        "Change Your Password",
                         style: TextStyle(
-                          fontSize: 32,
+                          fontSize: 26,
                           fontWeight: FontWeight.bold,
                           color: Colors.white,
                         ),
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        "Sign in to manage your leave applications.",
+                        "For your security, you must set a new password "
+                        "before continuing. This won't be asked again.",
                         style: TextStyle(
                           color: Colors.white.withOpacity(0.7),
                           fontSize: 13,
                         ),
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 28),
 
                       if (_errorMessage != null) ...[
                         Container(
@@ -157,82 +167,88 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 16),
                       ],
 
-                      // NOTE: was "YOUR EMAIL" — backend accepts username OR
-                      // email in a single `login` field (some employees have
-                      // no email on file and must log in with username).
-                      const Text(
-                        "USERNAME OR EMAIL",
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white60,
-                          letterSpacing: 0.9,
-                        ),
-                      ),
+                      _label("CURRENT PASSWORD"),
                       const SizedBox(height: 6),
                       TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.text,
+                        controller: _currentPasswordController,
+                        obscureText: _obscureCurrent,
                         style: const TextStyle(color: _navy),
                         decoration: _fieldDecoration(
-                          hint: "Username or you@example.com",
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return "Username or email is required.";
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 18),
-
-                      const Text(
-                        "PASSWORD",
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white60,
-                          letterSpacing: 0.9,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        style: const TextStyle(color: _navy),
-                        decoration: _fieldDecoration(
-                          hint: "••••••••",
+                          hint: "Your current/default password",
                           suffixIcon: IconButton(
                             icon: Icon(
-                              _obscurePassword
+                              _obscureCurrent
                                   ? Icons.visibility_outlined
                                   : Icons.visibility_off_outlined,
                               color: Colors.grey.shade500,
                               size: 20,
                             ),
-                            onPressed: () {
-                              setState(
-                                () => _obscurePassword = !_obscurePassword,
-                              );
-                            },
+                            onPressed: () => setState(
+                              () => _obscureCurrent = !_obscureCurrent,
+                            ),
                           ),
                         ),
-                        validator: (value) {
-                          // NOTE: was requiring 6+ chars — default passwords
-                          // are auto-generated from id_number, which may be
-                          // shorter. Let the server be the source of truth.
-                          if (value == null || value.isEmpty) {
-                            return "Password is required.";
-                          }
-                          return null;
-                        },
+                        validator: (v) => (v == null || v.isEmpty)
+                            ? "Current password is required."
+                            : null,
+                      ),
+                      const SizedBox(height: 18),
+
+                      _label("NEW PASSWORD"),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: _newPasswordController,
+                        obscureText: _obscureNew,
+                        style: const TextStyle(color: _navy),
+                        decoration: _fieldDecoration(
+                          hint: "8+ chars, upper & lower case, number, symbol",
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureNew
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: Colors.grey.shade500,
+                              size: 20,
+                            ),
+                            onPressed: () =>
+                                setState(() => _obscureNew = !_obscureNew),
+                          ),
+                        ),
+                        validator: _validateNewPassword,
+                      ),
+                      const SizedBox(height: 18),
+
+                      _label("CONFIRM NEW PASSWORD"),
+                      const SizedBox(height: 6),
+                      TextFormField(
+                        controller: _confirmPasswordController,
+                        obscureText: _obscureConfirm,
+                        style: const TextStyle(color: _navy),
+                        decoration: _fieldDecoration(
+                          hint: "Re-enter new password",
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscureConfirm
+                                  ? Icons.visibility_outlined
+                                  : Icons.visibility_off_outlined,
+                              color: Colors.grey.shade500,
+                              size: 20,
+                            ),
+                            onPressed: () => setState(
+                              () => _obscureConfirm = !_obscureConfirm,
+                            ),
+                          ),
+                        ),
+                        validator: (v) => (v == null || v.isEmpty)
+                            ? "Please confirm your new password."
+                            : null,
                       ),
                       const SizedBox(height: 32),
 
                       SizedBox(
                         height: 52,
                         child: ElevatedButton(
-                          onPressed: _isLoading ? null : _handleLogin,
+                          onPressed: _isLoading ? null : _handleSubmit,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.white,
                             foregroundColor: _navy,
@@ -251,34 +267,12 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                 )
                               : const Text(
-                                  "Login",
+                                  "Change Password",
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-
-                      Center(
-                        child: RichText(
-                          text: TextSpan(
-                            text: "Forgot your password? ",
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
-                              fontSize: 12.5,
-                            ),
-                            children: const [
-                              TextSpan(
-                                text: "Reset",
-                                style: TextStyle(
-                                  color: Colors.tealAccent,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
                         ),
                       ),
                     ],
@@ -292,10 +286,20 @@ class _LoginPageState extends State<LoginPage> {
     );
   }
 
+  Widget _label(String text) => Text(
+    text,
+    style: const TextStyle(
+      fontSize: 10.5,
+      fontWeight: FontWeight.w700,
+      color: Colors.white60,
+      letterSpacing: 0.9,
+    ),
+  );
+
   InputDecoration _fieldDecoration({required String hint, Widget? suffixIcon}) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+      hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13),
       suffixIcon: suffixIcon,
       filled: true,
       fillColor: Colors.white,

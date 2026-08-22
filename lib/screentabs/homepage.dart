@@ -7,11 +7,11 @@ import 'dart:convert';
 import '../providers/auth_providers.dart';
 import '../services/leave_credit_service.dart';
 import '../services/leave_application_service.dart';
-import '../users/login_page.dart';
 import '../screentabs/apply_for_leave.dart';
 import '../widgets/leave_type_card.dart';
 import '../widgets/leave_overview_strips.dart';
 import '../screentabs/profilepage.dart';
+import '../utils/employee_app_utils.dart';
 import '../variables.dart';
 
 class HomePage extends StatefulWidget {
@@ -126,8 +126,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
 
     try {
-      final result = await LeaveCreditService.getCredits(token)
-          .timeout(_networkTimeout);
+      final result = await LeaveCreditService.getCredits(
+        token,
+      ).timeout(_networkTimeout);
 
       if (!mounted) return;
       setState(() {
@@ -244,7 +245,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(child: CircularProgressIndicator(color: Colors.deepPurple)),
+      builder: (_) => const Center(
+        child: CircularProgressIndicator(color: Colors.deepPurple),
+      ),
     );
 
     try {
@@ -277,46 +280,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  String _formatDate(String? isoDate) {
-    if (isoDate == null || isoDate.isEmpty) return '';
-    try {
-      final date = DateTime.parse(isoDate);
-      return '${date.month.toString().padLeft(2, '0')}/'
-          '${date.day.toString().padLeft(2, '0')}/${date.year}';
-    } catch (_) {
-      return isoDate;
-    }
-  }
-
-  String _titleCase(String? value) {
-    if (value == null || value.isEmpty) return '';
-    return value
-        .split('_')
-        .map((w) => w.isEmpty ? w : '${w[0].toUpperCase()}${w.substring(1)}')
-        .join(' ');
-  }
-
   String _hiredYearRange() {
     if (_dateHired == null || _dateHired!.isEmpty) return '';
     final parsed = DateTime.tryParse(_dateHired!);
     if (parsed == null) return '';
-    final currentYear = int.tryParse(_creditData?["year"]?.toString() ?? '') ??
+    final currentYear =
+        int.tryParse(_creditData?["year"]?.toString() ?? '') ??
         DateTime.now().year;
     return '${parsed.year}-$currentYear';
   }
 
   Future<void> _goToApplyLeave() async {
-    List<dynamic> credits = [];
-
-    if (_creditData is Map) {
-      if (_creditData!["credits"] is List) {
-        credits = _creditData!["credits"];
-      } else if (_creditData!["data"] is List) {
-        credits = _creditData!["data"];
-      }
-    } else if (_creditData is List) {
-      credits = _creditData as List<dynamic>;
-    }
+    final credits = extractCreditsList(_creditData);
 
     final result = await Navigator.push(
       context,
@@ -332,15 +307,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Leave application submitted! It is pending approval.'),
+            content: Text(
+              'Leave application submitted! It is pending approval.',
+            ),
           ),
         );
       }
     }
   }
-
-  double _toDouble(dynamic value) =>
-      double.tryParse(value?.toString() ?? '0') ?? 0.0;
 
   /// Maps leave type name -> total approved days_applied. Used instead of
   /// the API's used_credits field, which isn't reliably updated after an
@@ -353,7 +327,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     final map = <String, double>{};
     for (final app in _approvedApplications) {
       final typeName = (app['leave_type_name'] ?? '').toString();
-      final days = _toDouble(app['days_applied']);
+      final days = toDoubleOrZero(app['days_applied']);
       map[typeName] = (map[typeName] ?? 0) + days;
     }
     return map;
@@ -403,56 +377,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return apiRemaining;
   }
 
-  Future<void> _handleLogout() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.warning, color: Colors.red),
-            SizedBox(width: 10),
-            Text('Confirm Logout'),
-          ],
-        ),
-        content: const Text('Do you want to logout?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('No', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.deepPurple,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            ),
-            child: const Text('Confirm'),
-          ),
-        ],
-      ),
-    );
-    if (confirm == true && mounted) {
-      Provider.of<AuthProvider>(context, listen: false).logout();
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (_) => const LoginPage()),
-      );
-    }
-  }
-
   Widget _buildWelcomeHeader(
     Map<String, dynamic>? user, {
     required List<dynamic> credits,
     required int pendingCount,
     required Map<String, double> approvedUsedByType,
   }) {
-    final statusLabel = _titleCase(_employmentStatus);
+    final statusLabel = titleCaseOrPlaceholder(_employmentStatus);
     final yearRange = _hiredYearRange();
-    final subtitle = [statusLabel, yearRange]
-        .where((s) => s.isNotEmpty)
-        .join(' · ');
+    final subtitle = [
+      statusLabel,
+      yearRange,
+    ].where((s) => s.isNotEmpty).join(' · ');
 
     return Container(
       width: double.infinity,
@@ -490,7 +426,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                   IconButton(
                     icon: const Icon(Icons.logout, color: Colors.white),
-                    onPressed: _handleLogout,
+                    onPressed: () => confirmAndLogout(context),
                   ),
                 ],
               ),
@@ -500,7 +436,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   padding: const EdgeInsets.only(right: 20),
                   child: Text(
                     subtitle,
-                    style: const TextStyle(color: Colors.white70, fontSize: 12.5),
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12.5,
+                    ),
                   ),
                 ),
               ],
@@ -520,15 +459,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Widget _buildHomeContent() {
     final user = Provider.of<AuthProvider>(context).user;
-    final List<dynamic> credits = () {
-      if (_creditData is Map) {
-        if (_creditData!["credits"] is List) return _creditData!["credits"];
-        if (_creditData!["data"] is List) return _creditData!["data"];
-      } else if (_creditData is List) {
-        return _creditData as List<dynamic>;
-      }
-      return <dynamic>[];
-    }();
+    final credits = extractCreditsList(_creditData);
     final approvedUsedByType = _approvedUsedByType();
 
     return RefreshIndicator(
@@ -559,7 +490,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             Padding(
               padding: const EdgeInsets.all(24),
               child: Center(
-                child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+                child: Text(
+                  _errorMessage!,
+                  style: const TextStyle(color: Colors.red),
+                ),
               ),
             )
           else
@@ -587,9 +521,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       itemBuilder: (context, index) {
                         final credit = credits[index];
                         final leaveTypeName =
-                            (credit["leave_type"] ?? credit["name"] ?? "").toString();
-                        final apiTotal = _toDouble(credit["total_credits"]);
-                        final apiRemaining = _toDouble(credit["remaining_balance"]);
+                            (credit["leave_type"] ?? credit["name"] ?? "")
+                                .toString();
+                        final apiTotal = toDoubleOrZero(
+                          credit["total_credits"],
+                        );
+                        final apiRemaining = toDoubleOrZero(
+                          credit["remaining_balance"],
+                        );
                         final isDynamic = _isDynamicLeaveType(leaveTypeName);
 
                         // total_credits isn't reliably populated by the API for
@@ -597,10 +536,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         // already be decremented depending on the type — so for
                         // dynamic types, reconstruct the true total as
                         // remaining + approved-used rather than assuming either.
-                        final approvedUsed = approvedUsedByType[leaveTypeName] ?? 0;
+                        final approvedUsed =
+                            approvedUsedByType[leaveTypeName] ?? 0;
                         final effectiveTotal = isDynamic
-                            ? (apiTotal > 0 ? apiTotal : apiRemaining + approvedUsed)
-                            : _staticCapFor(leaveTypeName, apiTotal, apiRemaining);
+                            ? (apiTotal > 0
+                                  ? apiTotal
+                                  : apiRemaining + approvedUsed)
+                            : _staticCapFor(
+                                leaveTypeName,
+                                apiTotal,
+                                apiRemaining,
+                              );
 
                         return SizedBox(
                           width: _leaveTypeCardWidth,
@@ -610,8 +556,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             total: effectiveTotal,
                             used: isDynamic
                                 ? approvedUsed
-                                : _toDouble(credit["used_credits"]),
-                            accentColor: _accentColors[index % _accentColors.length],
+                                : toDoubleOrZero(credit["used_credits"]),
+                            accentColor:
+                                _accentColors[index % _accentColors.length],
                             isDynamic: isDynamic,
                           ),
                         );
@@ -629,7 +576,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                   const SizedBox(height: 14),
                   if (_isLoadingPending)
-                    const Center(child: CircularProgressIndicator(color: Colors.deepPurple))
+                    const Center(
+                      child: CircularProgressIndicator(
+                        color: Colors.deepPurple,
+                      ),
+                    )
                   else if (_pendingApplications.isEmpty)
                     Container(
                       width: double.infinity,
@@ -652,15 +603,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       itemCount: _pendingApplications.length,
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
-                        final app = _pendingApplications[index] as Map<String, dynamic>;
+                        final app =
+                            _pendingApplications[index] as Map<String, dynamic>;
                         final leaveType = app['leave_type_name'] ?? 'Leave';
                         final days = app['days_applied']?.toString() ?? '0';
-                        final start = _formatDate(app['start_date']?.toString());
-                        final end = _formatDate(app['end_date']?.toString());
+                        final start = formatIsoDate(
+                          app['start_date']?.toString(),
+                        );
+                        final end = formatIsoDate(app['end_date']?.toString());
                         final id = app['id'];
 
                         return InkWell(
-                          onTap: id == null ? null : () => _viewPendingPdf(id as int),
+                          onTap: id == null
+                              ? null
+                              : () => _viewPendingPdf(id as int),
                           child: Container(
                             padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
@@ -671,7 +627,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                               children: [
                                 Expanded(
                                   child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
                                     children: [
                                       Text(
                                         leaveType,
@@ -692,8 +649,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                     ],
                                   ),
                                 ),
-                                const Icon(Icons.picture_as_pdf_outlined,
-                                    color: Color(0xFF8A97A8), size: 20),
+                                const Icon(
+                                  Icons.picture_as_pdf_outlined,
+                                  color: Color(0xFF8A97A8),
+                                  size: 20,
+                                ),
                               ],
                             ),
                           ),
@@ -725,7 +685,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             children: [
               _bottomNavItem(icon: Icons.home_rounded, label: 'Home', index: 0),
               const SizedBox(width: 48),
-              _bottomNavItem(icon: Icons.person_outline_rounded, label: 'Profile', index: 1),
+              _bottomNavItem(
+                icon: Icons.person_outline_rounded,
+                label: 'Profile',
+                index: 1,
+              ),
             ],
           ),
         ),
@@ -751,7 +715,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _bottomNavItem({required IconData icon, required String label, required int index}) {
+  Widget _bottomNavItem({
+    required IconData icon,
+    required String label,
+    required int index,
+  }) {
     final isSelected = _selectedIndex == index;
     return GestureDetector(
       onTap: () {
@@ -769,7 +737,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, color: isSelected ? Colors.deepPurple : Colors.grey, size: 24),
+          Icon(
+            icon,
+            color: isSelected ? Colors.deepPurple : Colors.grey,
+            size: 24,
+          ),
           const SizedBox(height: 2),
           Text(
             label,
