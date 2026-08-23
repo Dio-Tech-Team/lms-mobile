@@ -40,25 +40,30 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
 
   Future<void> _pickDate({required bool isStart}) async {
     final now = DateTime.now();
-    final initial = isStart
-        ? (_startDate ?? now)
-        : (_endDate ?? _startDate ?? now);
+    final isVL = _selectedLeaveType?.code == 'VL';
+    final earliestAllowed = isVL
+        ? DateTime(now.year, now.month, now.day + 5)
+        : DateTime(now.year, now.month, now.day);
 
+    final initial = isStart
+        ? (_startDate ?? earliestAllowed)
+        : (_endDate ?? _startDate ?? earliestAllowed);
     final picked = await showDatePicker(
       context: context,
-      initialDate: initial,
-      firstDate: DateTime(now.year - 1),
+      initialDate: initial.isBefore(earliestAllowed)
+          ? earliestAllowed
+          : initial,
+      firstDate: isStart ? earliestAllowed : (_startDate ?? earliestAllowed),
       lastDate: DateTime(now.year + 2),
       builder: (context, child) {
         return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(primary: _navy),
-          ),
+          data: Theme.of(
+            context,
+          ).copyWith(colorScheme: const ColorScheme.light(primary: _navy)),
           child: child!,
         );
       },
     );
-
     if (picked == null) return;
 
     setState(() {
@@ -94,15 +99,33 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
     final selected = _selectedLeaveType!;
 
     if (selected.code == 'WL' && days > 3) {
-      setState(() => _errorMessage =
-          'Wellness leave cannot exceed 3 consecutive days per application.');
+      setState(
+        () => _errorMessage =
+            'Wellness leave cannot exceed 3 consecutive days per application.',
+      );
       return;
+    }
+    if (selected.code == 'VL') {
+      final minStartDate = DateTime(
+        DateTime.now().year,
+        DateTime.now().month,
+        DateTime.now().day + 5,
+      );
+      if (_startDate!.isBefore(minStartDate)) {
+        setState(
+          () => _errorMessage =
+              'Vacation Leave must be filed at least 5 days before the start date.',
+        );
+        return;
+      }
     }
 
     if (days > selected.remainingBalance) {
-      setState(() => _errorMessage =
-          'Insufficient leave balance. You only have ${selected.remainingBalance} '
-          'days remaining for ${selected.name}.');
+      setState(
+        () => _errorMessage =
+            'Insufficient leave balance. You only have ${selected.remainingBalance} '
+            'days remaining for ${selected.name}.',
+      );
       return;
     }
 
@@ -206,16 +229,25 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                         decoration: BoxDecoration(
                           color: Colors.red.withOpacity(0.08),
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.red.withOpacity(0.3)),
+                          border: Border.all(
+                            color: Colors.red.withOpacity(0.3),
+                          ),
                         ),
                         child: Row(
                           children: [
-                            Icon(Icons.error_outline, color: Colors.red.shade400, size: 18),
+                            Icon(
+                              Icons.error_outline,
+                              color: Colors.red.shade400,
+                              size: 18,
+                            ),
                             const SizedBox(width: 8),
                             Expanded(
                               child: Text(
                                 _errorMessage!,
-                                style: const TextStyle(color: Colors.red, fontSize: 13),
+                                style: const TextStyle(
+                                  color: Colors.red,
+                                  fontSize: 13,
+                                ),
                               ),
                             ),
                           ],
@@ -232,18 +264,25 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                         value: _selectedLeaveType,
                         isExpanded: true,
                         decoration: _fieldDecoration(hint: 'Select leave type'),
-                        icon: const Icon(Icons.keyboard_arrow_down_rounded, color: _muted),
+                        icon: const Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: _muted,
+                        ),
                         items: options
-                            .map((opt) => DropdownMenuItem(
-                                  value: opt,
-                                  child: Text(
-                                    '${opt.name} (${opt.remainingBalance} left)',
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ))
+                            .map(
+                              (opt) => DropdownMenuItem(
+                                value: opt,
+                                child: Text(
+                                  '${opt.name} (${opt.remainingBalance} left)',
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
                             .toList(),
-                        onChanged: (val) => setState(() => _selectedLeaveType = val),
-                        validator: (val) => val == null ? 'Please select a leave type' : null,
+                        onChanged: (val) =>
+                            setState(() => _selectedLeaveType = val),
+                        validator: (val) =>
+                            val == null ? 'Please select a leave type' : null,
                       ),
                     ),
                     const SizedBox(height: 16),
@@ -277,14 +316,21 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                             const SizedBox(height: 12),
                             Container(
                               width: double.infinity,
-                              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 10,
+                                horizontal: 14,
+                              ),
                               decoration: BoxDecoration(
                                 color: _navy.withOpacity(0.07),
                                 borderRadius: BorderRadius.circular(10),
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.timelapse_rounded, size: 16, color: _navy),
+                                  const Icon(
+                                    Icons.timelapse_rounded,
+                                    size: 16,
+                                    color: _navy,
+                                  ),
                                   const SizedBox(width: 8),
                                   Text(
                                     '$_numberOfDays day${_numberOfDays > 1 ? 's' : ''} requested',
@@ -311,7 +357,8 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                         controller: _reasonController,
                         maxLines: 4,
                         decoration: _fieldDecoration(
-                          hint: 'Briefly describe your reason for leave (optional)',
+                          hint:
+                              'Briefly describe your reason for leave (optional)',
                         ),
                       ),
                     ),
@@ -341,7 +388,10 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                               )
                             : const Text(
                                 'Submit Request',
-                                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+                                style: TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
                       ),
                     ),
