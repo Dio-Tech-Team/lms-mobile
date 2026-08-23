@@ -31,15 +31,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   String? _dateHired;
 
   List<dynamic> _pendingApplications = [];
-  // Used to compute real VL/SL usage for the Overview strip, since the
-  // API's used_credits field isn't reliably updated after approval.
   List<dynamic> _approvedApplications = [];
   bool _isLoadingPending = true;
 
   Timer? _refreshTimer;
   static const Duration _networkTimeout = Duration(seconds: 10);
-  // Pending requests are the thing users most want to see update quickly
-  // (e.g. right after an approval), so poll them more often than credits.
   static const Duration _pendingRefreshInterval = Duration(seconds: 15);
   static const Duration _refreshInterval = Duration(seconds: 30);
 
@@ -67,18 +63,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _loadApprovedApplications();
     _loadEmploymentStatus();
 
-    // Silently refresh credits/employment info in the background —
-    // only while the Home tab is actually visible.
     _refreshTimer = Timer.periodic(_refreshInterval, (_) {
       if (!mounted || _selectedIndex != 0) return;
       _loadCredits(silent: true);
       _loadEmploymentStatus();
     });
 
-    // Pending requests get their own, faster timer since approvals/rejections
-    // should disappear from this list as soon as possible. Approved
-    // applications refresh on the same cadence, since a newly-approved
-    // request is exactly what should update the Overview's "Used" number.
     _pendingRefreshTimer = Timer.periodic(_pendingRefreshInterval, (_) {
       if (!mounted || _selectedIndex != 0) return;
       _loadPendingApplications(silent: true);
@@ -88,10 +78,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    // Timers pause while the app is backgrounded on most platforms, so an
-    // approval that happens while the app was minimized won't show up until
-    // we explicitly refresh here, the moment the user comes back.
-    // Only do this if Home is the visible tab — Profile handles its own.
     if (state == AppLifecycleState.resumed && _selectedIndex == 0) {
       _loadCredits(silent: true);
       _loadPendingApplications(silent: true);
@@ -178,7 +164,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         });
       }
     } catch (_) {
-      // Silent by nature already — no UI to show for this one.
+
     }
   }
 
@@ -233,7 +219,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         });
       }
     } catch (_) {
-      // Silent by design — this is a background/supplementary fetch.
+
     }
   }
 
@@ -316,13 +302,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  /// Maps leave type name -> total approved days_applied. Used instead of
-  /// the API's used_credits field, which isn't reliably updated after an
-  /// application is approved. Needed per-type (not just a VL+SL combined
-  /// sum) because we also use it to reconstruct each type's true total —
-  /// remaining_balance may or may not already be decremented by the
-  /// backend depending on the leave type, so total = remaining + used is
-  /// the only reconstruction that works in both cases.
   Map<String, double> _approvedUsedByType() {
     final map = <String, double>{};
     for (final app in _approvedApplications) {
@@ -333,21 +312,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return map;
   }
 
-  // Vacation Leave and Sick Leave accrue monthly, so both their cap
-  // (total_credits) and remaining balance genuinely change over time —
-  // for these we show the numbers exactly as the API sends them.
   static const Set<String> _dynamicLeaveTypes = {
     'Vacation Leave',
     'Sick Leave',
   };
 
-  // Everything else is a fixed, non-accruing allocation. The API's
-  // total_credits field isn't populated for these, so we use a known
-  // fixed cap instead. Update this map to match your actual
-  // leave_configuration values — these are standard PH civil-service
-  // defaults and may not match your setup exactly (e.g. Paternity Leave
-  // is statutorily 7 days, but your data showed a remaining balance of 3,
-  // which could mean days were already used, or your config differs).
   static const Map<String, double> _staticLeaveCaps = {
     'Wellness Leave': 5,
     'VAWC Leave': 10,
@@ -365,11 +334,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   bool _isDynamicLeaveType(String name) => _dynamicLeaveTypes.contains(name);
 
-  /// Returns the fixed cap for a static leave type. Falls back to the
-  /// API's total_credits if the type isn't in the map, and if that's
-  /// also 0/missing, falls back to remaining_balance (better to show
-  /// a number that's at least equal to the true entitlement so far,
-  /// than a misleading "of 0").
   double _staticCapFor(String name, double apiTotal, double apiRemaining) {
     final mapped = _staticLeaveCaps[name];
     if (mapped != null) return mapped;
@@ -530,12 +494,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                           credit["remaining_balance"],
                         );
                         final isDynamic = _isDynamicLeaveType(leaveTypeName);
-
-                        // total_credits isn't reliably populated by the API for
-                        // ANY leave type, and remaining_balance may or may not
-                        // already be decremented depending on the type — so for
-                        // dynamic types, reconstruct the true total as
-                        // remaining + approved-used rather than assuming either.
                         final approvedUsed =
                             approvedUsedByType[leaveTypeName] ?? 0;
                         final effectiveTotal = isDynamic
@@ -703,8 +661,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             )
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      // IndexedStack keeps both tabs mounted so switching between them is
-      // instant and ProfilePage doesn't re-run its network calls every time.
       body: IndexedStack(
         index: _selectedIndex,
         children: [
@@ -726,8 +682,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         final wasInactive = _selectedIndex != 0 && index == 0;
         setState(() => _selectedIndex = index);
         if (wasInactive) {
-          // Coming back to Home after the timer was paused — catch up now
-          // rather than waiting for the next tick.
           _loadCredits(silent: true);
           _loadPendingApplications(silent: true);
           _loadApprovedApplications(silent: true);

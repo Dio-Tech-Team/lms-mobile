@@ -63,8 +63,6 @@ class LeaveApplicationService {
   }) async {
     final queryParams = <String, String>{'page': '$page'};
     if (status != null) queryParams['status'] = status;
-    
-    // ✅ FIXED: Correct endpoint for GET /api/leave-applications
     final uri = Uri.parse('$baseUrl/leave-applications')
         .replace(queryParameters: queryParams);
 
