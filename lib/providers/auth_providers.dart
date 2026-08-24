@@ -12,7 +12,11 @@ class AuthProvider extends ChangeNotifier {
   Map<String, dynamic>? _employee;
   bool _isLoadingEmployee = false;
 
+  DateTime? _lastEmployeeFetch;
+  Future<void>? _employeeFetchInFlight;
+
   static const Duration _networkTimeout = Duration(seconds: 10);
+  static const Duration _employeeCacheTtl = Duration(seconds: 30);
 
   bool get isLoggedIn => _isLoggedIn;
   String? get token => _token;
@@ -73,6 +77,8 @@ class AuthProvider extends ChangeNotifier {
     _user = null;
     _isLoggedIn = false;
     _employee = null;
+    _lastEmployeeFetch = null;
+    _employeeFetchInFlight = null;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('auth_token');
@@ -81,9 +87,33 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> fetchEmployeeDetails({bool silent = false}) async {
+  Future<void> fetchEmployeeDetails({
+    bool silent = false,
+    bool forceRefresh = false,
+  }) async {
     if (_token == null || employeeId == null) return;
 
+    if (!forceRefresh &&
+        _employee != null &&
+        _lastEmployeeFetch != null &&
+        DateTime.now().difference(_lastEmployeeFetch!) < _employeeCacheTtl) {
+      return;
+    }
+
+    if (_employeeFetchInFlight != null) {
+      return _employeeFetchInFlight;
+    }
+
+    final future = _doFetchEmployeeDetails(silent: silent);
+    _employeeFetchInFlight = future;
+    try {
+      await future;
+    } finally {
+      _employeeFetchInFlight = null;
+    }
+  }
+
+  Future<void> _doFetchEmployeeDetails({required bool silent}) async {
     if (!silent) {
       _isLoadingEmployee = true;
       notifyListeners();
@@ -102,8 +132,12 @@ class AuthProvider extends ChangeNotifier {
 
       if (res.statusCode == 200) {
         _employee = jsonDecode(res.body) as Map<String, dynamic>;
+        _lastEmployeeFetch = DateTime.now();
+      } else if (res.statusCode == 429) {
+        _lastEmployeeFetch = DateTime.now();
       }
     } catch (_) {
+
     } finally {
       _isLoadingEmployee = false;
       notifyListeners();

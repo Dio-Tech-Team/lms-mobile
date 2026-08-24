@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../services/api_service.dart';
@@ -22,6 +23,7 @@ class _LoginPageState extends State<LoginPage> {
   static const Color _navyLight = Color(0xFF2D5491);
   static const Color _navy = Color(0xFF1B3B63);
   static const Color _navyDark = Color(0xFF0D1B3A);
+  static const Color _fieldFill = Color(0xFFF2F4F7);
 
   @override
   void dispose() {
@@ -63,92 +65,117 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: SizedBox.expand(
-        child: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [_navyLight, _navy, _navyDark],
-              stops: [0.0, 0.5, 1.0],
+      backgroundColor: Colors.white,
+      body: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            ClipPath(
+              clipper: _BottomCurveClipper(),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 150),
+                decoration: const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [_navyLight, _navy, _navyDark],
+                    stops: [0.0, 0.5, 1.0],
+                  ),
+                ),
+                child: SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 36),
+                    child: Column(
+                      children: [
+                        Container(
+                          width: 64,
+                          height: 64,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withOpacity(0.15),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withOpacity(0.4),
+                              width: 1.5,
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.event_available_rounded,
+                            color: Colors.white,
+                            size: 32,
+                          ),
+                        ),
+                        const SizedBox(height: 14),
+                        Text(
+                          "LeaveSync",
+                          style: GoogleFonts.fraunces(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
             ),
-          ),
-          child: SafeArea(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(28, 32, 28, 24),
+
+            Transform.translate(
+              offset: const Offset(0, -95),
+              child: Container(
+                margin: const EdgeInsets.symmetric(horizontal: 22),
+                padding: const EdgeInsets.fromLTRB(24, 32, 24, 28),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(28),
+                  boxShadow: [
+                    BoxShadow(
+                      color: _navyDark.withOpacity(0.15),
+                      blurRadius: 24,
+                      offset: const Offset(0, 12),
+                    ),
+                  ],
+                ),
                 child: Form(
                   key: _formKey,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            width: 36,
-                            height: 36,
-                            decoration: BoxDecoration(
-                              color: Colors.tealAccent.withOpacity(0.25),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: Colors.tealAccent.withOpacity(0.5),
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: const Text(
-                              "L",
-                              style: TextStyle(
-                                color: Colors.tealAccent,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 18,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          const Text(
-                            "LeaveSync",
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 18,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 60),
-
-                      const Text(
-                        "Login",
-                        style: TextStyle(
-                          fontSize: 32,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                      Text(
+                        "Welcome Back",
+                        style: GoogleFonts.fraunces(
+                          fontSize: 28,
+                          fontWeight: FontWeight.w600,
+                          color: _navyDark,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Text(
                         "Sign in to manage your leave applications.",
-                        style: TextStyle(
-                          color: Colors.white.withOpacity(0.7),
-                          fontSize: 13,
+                        style: GoogleFonts.nunito(
+                          color: Colors.grey.shade600,
+                          fontSize: 13.5,
                         ),
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 26),
 
                       if (_errorMessage != null) ...[
                         Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(10),
+                            color: Colors.red.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(14),
                             border: Border.all(
-                              color: Colors.red.withOpacity(0.4),
+                              color: Colors.red.withOpacity(0.3),
                             ),
                           ),
                           child: Text(
                             _errorMessage!,
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: GoogleFonts.nunito(
+                              color: Colors.red,
                               fontSize: 13,
                             ),
                             textAlign: TextAlign.center,
@@ -157,25 +184,13 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 16),
                       ],
 
-                      // NOTE: was "YOUR EMAIL" — backend accepts username OR
-                      // email in a single `login` field (some employees have
-                      // no email on file and must log in with username).
-                      const Text(
-                        "USERNAME OR EMAIL",
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white60,
-                          letterSpacing: 0.9,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
                       TextFormField(
                         controller: _emailController,
                         keyboardType: TextInputType.text,
-                        style: const TextStyle(color: _navy),
+                        style: GoogleFonts.nunito(color: _navyDark),
                         decoration: _fieldDecoration(
-                          hint: "Username or you@example.com",
+                          hint: "Username or Email",
+                          icon: Icons.mail_outline_rounded,
                         ),
                         validator: (value) {
                           if (value == null || value.trim().isEmpty) {
@@ -184,24 +199,15 @@ class _LoginPageState extends State<LoginPage> {
                           return null;
                         },
                       ),
-                      const SizedBox(height: 18),
+                      const SizedBox(height: 16),
 
-                      const Text(
-                        "PASSWORD",
-                        style: TextStyle(
-                          fontSize: 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white60,
-                          letterSpacing: 0.9,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
                       TextFormField(
                         controller: _passwordController,
                         obscureText: _obscurePassword,
-                        style: const TextStyle(color: _navy),
+                        style: GoogleFonts.nunito(color: _navyDark),
                         decoration: _fieldDecoration(
-                          hint: "••••••••",
+                          hint: "Password",
+                          icon: Icons.lock_outline_rounded,
                           suffixIcon: IconButton(
                             icon: Icon(
                               _obscurePassword
@@ -218,24 +224,21 @@ class _LoginPageState extends State<LoginPage> {
                           ),
                         ),
                         validator: (value) {
-                          // NOTE: was requiring 6+ chars — default passwords
-                          // are auto-generated from id_number, which may be
-                          // shorter. Let the server be the source of truth.
                           if (value == null || value.isEmpty) {
                             return "Password is required.";
                           }
                           return null;
                         },
                       ),
-                      const SizedBox(height: 32),
+                      const SizedBox(height: 28),
 
                       SizedBox(
-                        height: 52,
+                        height: 54,
                         child: ElevatedButton(
                           onPressed: _isLoading ? null : _handleLogin,
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: _navy,
+                            backgroundColor: _navy,
+                            foregroundColor: Colors.white,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(30),
@@ -246,39 +249,18 @@ class _LoginPageState extends State<LoginPage> {
                                   height: 22,
                                   width: 22,
                                   child: CircularProgressIndicator(
-                                    color: _navy,
+                                    color: Colors.white,
                                     strokeWidth: 2.5,
                                   ),
                                 )
-                              : const Text(
-                                  "Login",
-                                  style: TextStyle(
+                              : Text(
+                                  "Sign In",
+                                  style: GoogleFonts.nunito(
                                     fontSize: 16,
-                                    fontWeight: FontWeight.w600,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.3,
                                   ),
                                 ),
-                        ),
-                      ),
-                      const SizedBox(height: 18),
-
-                      Center(
-                        child: RichText(
-                          text: TextSpan(
-                            text: "Forgot your password? ",
-                            style: TextStyle(
-                              color: Colors.white.withOpacity(0.7),
-                              fontSize: 12.5,
-                            ),
-                            children: const [
-                              TextSpan(
-                                text: "Reset",
-                                style: TextStyle(
-                                  color: Colors.tealAccent,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ],
-                          ),
                         ),
                       ),
                     ],
@@ -286,19 +268,48 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
             ),
-          ),
+
+            Padding(
+              padding: const EdgeInsets.only(bottom: 32),
+              child: Center(
+                child: RichText(
+                  text: TextSpan(
+                    text: "Forgot your password? ",
+                    style: GoogleFonts.nunito(
+                      color: Colors.grey.shade600,
+                      fontSize: 13,
+                    ),
+                    children: [
+                      TextSpan(
+                        text: "Reset",
+                        style: GoogleFonts.nunito(
+                          color: _navy,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
-  InputDecoration _fieldDecoration({required String hint, Widget? suffixIcon}) {
+  InputDecoration _fieldDecoration({
+    required String hint,
+    required IconData icon,
+    Widget? suffixIcon,
+  }) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 14),
+      hintStyle: GoogleFonts.nunito(color: Colors.grey.shade400, fontSize: 14),
+      prefixIcon: Icon(icon, color: _navy, size: 20),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: Colors.white,
+      fillColor: _fieldFill,
       contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(30),
@@ -310,7 +321,7 @@ class _LoginPageState extends State<LoginPage> {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(30),
-        borderSide: const BorderSide(color: Colors.tealAccent, width: 1.6),
+        borderSide: const BorderSide(color: _navy, width: 1.6),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(30),
@@ -318,4 +329,24 @@ class _LoginPageState extends State<LoginPage> {
       ),
     );
   }
+}
+
+class _BottomCurveClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    final path = Path();
+    path.lineTo(0, size.height - 80);
+    path.quadraticBezierTo(
+      size.width / 2,
+      size.height,
+      size.width,
+      size.height - 80,
+    );
+    path.lineTo(size.width, 0);
+    path.close();
+    return path;
+  }
+
+  @override
+  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
 }

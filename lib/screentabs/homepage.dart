@@ -2,8 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:printing/printing.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
+import 'package:google_fonts/google_fonts.dart';
 import '../providers/auth_providers.dart';
 import '../services/leave_credit_service.dart';
 import '../services/leave_application_service.dart';
@@ -11,8 +10,8 @@ import '../screentabs/apply_for_leave.dart';
 import '../widgets/leave_type_card.dart';
 import '../widgets/leave_overview_strips.dart';
 import '../screentabs/profilepage.dart';
+import '../screentabs/leave_monetization.dart';
 import '../utils/employee_app_utils.dart';
-import '../variables.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -27,8 +26,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Map<String, dynamic>? _creditData;
   int _selectedIndex = 0;
 
-  String? _employmentStatus;
-  String? _dateHired;
+  String? _department;
 
   List<dynamic> _pendingApplications = [];
   List<dynamic> _approvedApplications = [];
@@ -41,6 +39,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   static const double _leaveTypeCardWidth = 140;
   static const double _leaveTypeCardHeight = 150;
+
+  static const Color _navy = Color(0xFF13224A);
+  static const Color _muted = Color(0xFF8A97A8);
+  static const Color _bg = Color(0xFFF3F5F9);
 
   static const List<Color> _accentColors = [
     Color(0xFF1E3A5F),
@@ -137,35 +139,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  /// Employee/employment-status data now comes from AuthProvider, which
+  /// caches results for ~30s and de-dupes concurrent requests. This is what
+  /// stops HomePage and ProfilePage from both hitting /employees/{id} at
+  /// the same time and tripping the API's rate limiter (429).
   Future<void> _loadEmploymentStatus() async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    final token = auth.token;
-    final employeeId = auth.employeeId;
+    if (auth.token == null || auth.employeeId == null) return;
 
-    if (token == null || employeeId == null) return;
+    await auth.fetchEmployeeDetails(silent: true);
 
-    try {
-      final res = await http
-          .get(
-            Uri.parse('$baseUrl/employees/$employeeId'),
-            headers: {
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-          )
-          .timeout(_networkTimeout);
+    if (!mounted) return;
+    setState(() {
+      _department = _extractDepartment(auth.employee ?? {});
+    });
+  }
 
-      if (res.statusCode == 200) {
-        final data = jsonDecode(res.body);
-        if (!mounted) return;
-        setState(() {
-          _employmentStatus = data['employment_status']?.toString();
-          _dateHired = data['date_hired']?.toString();
-        });
-      }
-    } catch (_) {
-
+  String? _extractDepartment(Map<String, dynamic> data) {
+    final direct = data['department_name'] ?? data['department'];
+    if (direct is String && direct.isNotEmpty) return direct;
+    if (direct is Map && direct['name'] != null) {
+      return direct['name'].toString();
     }
+    return null;
   }
 
   Future<void> _loadPendingApplications({bool silent = false}) async {
@@ -218,9 +214,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _approvedApplications = result['data'] as List<dynamic>;
         });
       }
-    } catch (_) {
-
-    }
+    } catch (_) {}
   }
 
   Future<void> _viewPendingPdf(int applicationId) async {
@@ -232,7 +226,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       context: context,
       barrierDismissible: false,
       builder: (_) => const Center(
-        child: CircularProgressIndicator(color: Colors.deepPurple),
+        child: CircularProgressIndicator(color: _navy),
       ),
     );
 
@@ -267,8 +261,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   String _hiredYearRange() {
-    if (_dateHired == null || _dateHired!.isEmpty) return '';
-    final parsed = DateTime.tryParse(_dateHired!);
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final dateHired = auth.dateHired;
+    if (dateHired == null || dateHired.isEmpty) return '';
+    final parsed = DateTime.tryParse(dateHired);
     if (parsed == null) return '';
     final currentYear =
         int.tryParse(_creditData?["year"]?.toString() ?? '') ??
@@ -294,7 +290,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Leave application submitted! It is pending approval.',
+              'Leave application submitted! It is pending for approval.',
             ),
           ),
         );
@@ -347,12 +343,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     required int pendingCount,
     required Map<String, double> approvedUsedByType,
   }) {
-    final statusLabel = titleCaseOrPlaceholder(_employmentStatus);
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final statusLabel = titleCaseOrPlaceholder(auth.employmentStatus);
     final yearRange = _hiredYearRange();
     final subtitle = [
       statusLabel,
+      if (_department != null && _department!.isNotEmpty) _department!,
       yearRange,
     ].where((s) => s.isNotEmpty).join(' · ');
+
+    final username = (user?["username"] ?? "User").toString();
+    final initial = username.isNotEmpty ? username[0].toUpperCase() : 'U';
 
     return Container(
       width: double.infinity,
@@ -360,54 +361,86 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFF13224A), Color(0xFF1B3B63)],
+          colors: [Color(0xFF0F1B3D), Color(0xFF1B3B63)],
         ),
         borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(24),
-          bottomRight: Radius.circular(24),
+          bottomLeft: Radius.circular(28),
+          bottomRight: Radius.circular(28),
         ),
       ),
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 8, 20),
+          padding: const EdgeInsets.fromLTRB(20, 10, 16, 22),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Expanded(
+                  Container(
+                    width: 40,
+                    height: 40,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: Colors.white.withOpacity(0.18),
+                      ),
+                    ),
                     child: Text(
-                      'Hello, ${user?["username"] ?? "User"}!',
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      initial,
+                      style: GoogleFonts.fraunces(
                         color: Colors.white,
-                        fontSize: 20,
-                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.logout, color: Colors.white),
-                    onPressed: () => confirmAndLogout(context),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Hello, $username!',
+                          overflow: TextOverflow.ellipsis,
+                          style: GoogleFonts.fraunces(
+                            color: Colors.white,
+                            fontSize: 19,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        if (subtitle.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle,
+                            overflow: TextOverflow.ellipsis,
+                            style: GoogleFonts.nunito(
+                              color: Colors.white60,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  Material(
+                    color: Colors.white.withOpacity(0.08),
+                    shape: const CircleBorder(),
+                    child: IconButton(
+                      icon: const Icon(
+                        Icons.logout_rounded,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+                      onPressed: () => confirmAndLogout(context),
+                    ),
                   ),
                 ],
               ),
-              if (subtitle.isNotEmpty) ...[
-                const SizedBox(height: 2),
-                Padding(
-                  padding: const EdgeInsets.only(right: 20),
-                  child: Text(
-                    subtitle,
-                    style: const TextStyle(
-                      color: Colors.white70,
-                      fontSize: 12.5,
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 18),
+              const SizedBox(height: 20),
               LeaveOverviewStrip(
                 credits: credits,
                 pendingCount: pendingCount,
@@ -418,6 +451,38 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
         ),
       ),
+    );
+  }
+
+  Widget _sectionHeader(String title, {String? trailing}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: GoogleFonts.fraunces(
+            fontSize: 17,
+            fontWeight: FontWeight.w600,
+            color: _navy,
+          ),
+        ),
+        if (trailing != null)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
+            decoration: BoxDecoration(
+              color: _navy.withOpacity(0.06),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              trailing,
+              style: GoogleFonts.nunito(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: _navy.withOpacity(0.7),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -433,7 +498,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _loadApprovedApplications();
         await _loadEmploymentStatus();
       },
-      color: Colors.deepPurple,
+      color: _navy,
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
@@ -445,35 +510,49 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           ),
           if (_isLoading)
             const Padding(
-              padding: EdgeInsets.symmetric(vertical: 60),
+              padding: EdgeInsets.symmetric(vertical: 70),
               child: Center(
-                child: CircularProgressIndicator(color: Colors.deepPurple),
+                child: CircularProgressIndicator(color: _navy),
               ),
             )
           else if (_errorMessage != null)
             Padding(
               padding: const EdgeInsets.all(24),
-              child: Center(
-                child: Text(
-                  _errorMessage!,
-                  style: const TextStyle(color: Colors.red),
+              child: Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFCEAEA),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.error_outline_rounded,
+                      color: Color(0xFFD9455F),
+                      size: 20,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _errorMessage!,
+                        style: GoogleFonts.nunito(
+                          color: const Color(0xFFB23A50),
+                          fontWeight: FontWeight.w600,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             )
           else
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 24),
+              padding: const EdgeInsets.fromLTRB(16, 22, 16, 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
-                    'Available Leave Type',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1E3A5F),
-                    ),
-                  ),
+                  _sectionHeader('Available Leave Type'),
                   const SizedBox(height: 14),
                   SizedBox(
                     height: _leaveTypeCardHeight,
@@ -523,35 +602,58 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       },
                     ),
                   ),
-                  const SizedBox(height: 24),
-                  const Text(
+                  const SizedBox(height: 26),
+                  _sectionHeader(
                     'Pending Requests',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF1E3A5F),
-                    ),
+                    trailing: _pendingApplications.isEmpty
+                        ? null
+                        : '${_pendingApplications.length}',
                   ),
                   const SizedBox(height: 14),
                   if (_isLoadingPending)
-                    const Center(
-                      child: CircularProgressIndicator(
-                        color: Colors.deepPurple,
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 20),
+                      child: Center(
+                        child: CircularProgressIndicator(color: _navy),
                       ),
                     )
                   else if (_pendingApplications.isEmpty)
                     Container(
                       width: double.infinity,
-                      padding: const EdgeInsets.all(20),
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 28,
+                        horizontal: 20,
+                      ),
                       decoration: BoxDecoration(
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: const Color(0xFFEDEFF4)),
                       ),
-                      child: const Center(
-                        child: Text(
-                          'No pending requests.',
-                          style: TextStyle(color: Color(0xFF8A97A8)),
-                        ),
+                      child: Column(
+                        children: [
+                          Icon(
+                            Icons.task_alt_rounded,
+                            color: _muted.withOpacity(0.5),
+                            size: 26,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'No pending requests',
+                            style: GoogleFonts.nunito(
+                              color: _muted,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            "You're all caught up.",
+                            style: GoogleFonts.nunito(
+                              color: _muted.withOpacity(0.7),
+                              fontSize: 11.5,
+                            ),
+                          ),
+                        ],
                       ),
                     )
                   else
@@ -562,7 +664,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
                         final app =
-                            _pendingApplications[index] as Map<String, dynamic>;
+                            _pendingApplications[index]
+                                as Map<String, dynamic>;
                         final leaveType = app['leave_type_name'] ?? 'Leave';
                         final days = app['days_applied']?.toString() ?? '0';
                         final start = formatIsoDate(
@@ -570,49 +673,89 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         );
                         final end = formatIsoDate(app['end_date']?.toString());
                         final id = app['id'];
+                        final dotColor =
+                            _accentColors[index % _accentColors.length];
 
-                        return InkWell(
-                          onTap: id == null
-                              ? null
-                              : () => _viewPendingPdf(id as int),
-                          child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        leaveType,
-                                        style: const TextStyle(
-                                          fontWeight: FontWeight.w600,
-                                          fontSize: 14,
-                                          color: Color(0xFF1E3A5F),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        '$start – $end · $days day(s)',
-                                        style: const TextStyle(
-                                          fontSize: 12,
-                                          color: Color(0xFF8A97A8),
-                                        ),
-                                      ),
-                                    ],
+                        return Material(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(14),
+                            onTap: id == null
+                                ? null
+                                : () => _viewPendingPdf(id as int),
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(
+                                  color: const Color(0xFFEDEFF4),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Container(
+                                    width: 8,
+                                    height: 8,
+                                    margin: const EdgeInsets.only(right: 12),
+                                    decoration: BoxDecoration(
+                                      color: dotColor,
+                                      shape: BoxShape.circle,
+                                    ),
                                   ),
-                                ),
-                                const Icon(
-                                  Icons.picture_as_pdf_outlined,
-                                  color: Color(0xFF8A97A8),
-                                  size: 20,
-                                ),
-                              ],
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          leaveType,
+                                          style: GoogleFonts.nunito(
+                                            fontWeight: FontWeight.w700,
+                                            fontSize: 14,
+                                            color: _navy,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 3),
+                                        Text(
+                                          '$start – $end · $days day(s)',
+                                          style: GoogleFonts.nunito(
+                                            fontSize: 12,
+                                            color: _muted,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(
+                                        0xFFF5A623,
+                                      ).withOpacity(0.12),
+                                      borderRadius: BorderRadius.circular(20),
+                                    ),
+                                    child: Text(
+                                      'Pending',
+                                      style: GoogleFonts.nunito(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w700,
+                                        color: const Color(0xFFB5750E),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Icon(
+                                    Icons.picture_as_pdf_outlined,
+                                    color: _muted,
+                                    size: 18,
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         );
@@ -626,38 +769,84 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
+  Widget _buildPlaceholderTab(String label) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            Icons.construction_rounded,
+            color: _muted.withOpacity(0.4),
+            size: 32,
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '$label — coming soon',
+            style: GoogleFonts.nunito(
+              color: _muted,
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFEEF0F5),
+      backgroundColor: _bg,
       appBar: null,
       bottomNavigationBar: BottomAppBar(
         color: Colors.white,
-        elevation: 8,
+        elevation: 10,
         shape: const CircularNotchedRectangle(),
         notchMargin: 8,
         child: SizedBox(
-          height: 60,
+          height: 62,
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
               _bottomNavItem(icon: Icons.home_rounded, label: 'Home', index: 0),
+              _bottomNavItem(
+                icon: Icons.payments_rounded,
+                label: 'Monetize',
+                index: 1,
+              ),
               const SizedBox(width: 48),
               _bottomNavItem(
                 icon: Icons.person_outline_rounded,
                 label: 'Profile',
-                index: 1,
+                index: 2,
+              ),
+              _bottomNavItem(
+                icon: Icons.settings_outlined,
+                label: 'Settings',
+                index: 3,
               ),
             ],
           ),
         ),
       ),
       floatingActionButton: _selectedIndex == 0
-          ? FloatingActionButton(
-              backgroundColor: Colors.deepPurple,
-              onPressed: _goToApplyLeave,
-              shape: const CircleBorder(),
-              child: const Icon(Icons.add, color: Colors.white, size: 28),
+          ? Container(
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: _navy.withOpacity(0.35),
+                    blurRadius: 14,
+                    offset: const Offset(0, 6),
+                  ),
+                ],
+              ),
+              child: FloatingActionButton(
+                backgroundColor: _navy,
+                onPressed: _goToApplyLeave,
+                shape: const CircleBorder(),
+                child: const Icon(Icons.add, color: Colors.white, size: 28),
+              ),
             )
           : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
@@ -665,7 +854,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         index: _selectedIndex,
         children: [
           _buildHomeContent(),
-          ProfilePage(isActive: _selectedIndex == 1),
+          const ApplyForLeaveMonetization(),
+          ProfilePage(isActive: _selectedIndex == 2),
+          _buildPlaceholderTab('Settings'),
         ],
       ),
     );
@@ -677,6 +868,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     required int index,
   }) {
     final isSelected = _selectedIndex == index;
+    final color = isSelected ? _navy : _muted.withOpacity(0.75);
     return GestureDetector(
       onTap: () {
         final wasInactive = _selectedIndex != 0 && index == 0;
@@ -688,24 +880,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _loadEmploymentStatus();
         }
       },
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            icon,
-            color: isSelected ? Colors.deepPurple : Colors.grey,
-            size: 24,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              color: isSelected ? Colors.deepPurple : Colors.grey,
-              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+      behavior: HitTestBehavior.opaque,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected ? _navy.withOpacity(0.07) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, color: color, size: 22),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              style: GoogleFonts.nunito(
+                fontSize: 10.5,
+                color: color,
+                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

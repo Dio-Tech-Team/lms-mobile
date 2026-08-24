@@ -2,16 +2,12 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:http/http.dart' as http;
-import 'dart:convert';
-
 import '../providers/auth_providers.dart';
 import '../services/leave_application_service.dart';
 import '../services/leave_credit_service.dart';
 import '../widgets/leave_balance_card.dart';
 import '../widgets/pdf_view_page.dart';
 import '../utils/employee_app_utils.dart';
-import '../variables.dart';
 
 class ProfilePage extends StatefulWidget {
   final bool isActive;
@@ -39,8 +35,14 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _loadAll();
-    if (widget.isActive) _startTimer();
+    // Only fetch/poll if this tab is actually visible. IndexedStack builds
+    // this widget immediately even when it's not the selected tab, so
+    // without this guard we'd fire a network request on app start before
+    // the user ever opens Profile.
+    if (widget.isActive) {
+      _loadAll();
+      _startTimer();
+    }
   }
 
   void _startTimer() {
@@ -98,15 +100,17 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        if (!silent)
+        if (!silent) {
           _errorMessage = 'No employee record linked to your account.';
+        }
       });
       return;
     }
 
     try {
+      await auth.fetchEmployeeDetails(silent: silent);
+
       final results = await Future.wait([
-        _fetchEmployee(token: token, employeeId: employeeId),
         LeaveApplicationService.getMyApplications(
           token: token,
           status: 'approved',
@@ -118,18 +122,16 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         LeaveCreditService.getCredits(token).timeout(_networkTimeout),
       ]).timeout(_networkTimeout + const Duration(seconds: 2));
 
-      final employeeResult = results[0] as Map<String, dynamic>;
-      final approvedResult = results[1] as Map<String, dynamic>;
-      final cancelledResult = results[2] as Map<String, dynamic>;
-      final creditResult = results[3] as Map<String, dynamic>;
+      final approvedResult = results[0] as Map<String, dynamic>;
+      final cancelledResult = results[1] as Map<String, dynamic>;
+      final creditResult = results[2] as Map<String, dynamic>;
 
-      if (employeeResult['success'] != true) {
+      if (auth.employee == null) {
         if (!mounted) return;
         setState(() {
           _isLoading = false;
           if (!silent) {
-            _errorMessage =
-                employeeResult['message'] ?? 'Failed to load profile.';
+            _errorMessage = 'Failed to load profile.';
           }
         });
         return;
@@ -154,7 +156,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
 
       if (!mounted) return;
       setState(() {
-        _employee = employeeResult['data'];
+        _employee = auth.employee;
         _leaveLogs = logs;
         _creditData = creditResult['success'] == true
             ? creditResult['data']
@@ -170,36 +172,6 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
           _errorMessage = 'Something went wrong loading your profile.';
         }
       });
-    }
-  }
-
-  Future<Map<String, dynamic>> _fetchEmployee({
-    required String token,
-    required int employeeId,
-  }) async {
-    try {
-      final res = await http
-          .get(
-            Uri.parse('$baseUrl/employees/$employeeId'),
-            headers: {
-              'Accept': 'application/json',
-              'Authorization': 'Bearer $token',
-            },
-          )
-          .timeout(_networkTimeout);
-
-      if (res.statusCode == 200) {
-        return {'success': true, 'data': jsonDecode(res.body)};
-      }
-      return {
-        'success': false,
-        'message': 'Failed to load profile (${res.statusCode})',
-      };
-    } catch (e) {
-      return {
-        'success': false,
-        'message': 'Network error while loading profile.',
-      };
     }
   }
 
@@ -313,7 +285,7 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     final vlMonetizable = _vlSlField(vlEntry, "remaining_balance");
 
     return RefreshIndicator(
-      onRefresh: _loadAll,
+      onRefresh: () => _loadAll(),
       color: Colors.deepPurple,
       child: ListView(
         padding: EdgeInsets.zero,

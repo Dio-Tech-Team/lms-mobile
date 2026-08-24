@@ -6,9 +6,6 @@ import '../users/login_page.dart';
 double toDoubleOrZero(dynamic value) =>
     double.tryParse(value?.toString() ?? '0') ?? 0.0;
 
-/// Formats an ISO date string as MM/DD/YYYY. Returns [placeholder] for
-/// null/empty input (homepage used '', profile used '—' — pass whichever
-/// fits the call site).
 String formatIsoDate(String? isoDate, {String placeholder = ''}) {
   if (isoDate == null || isoDate.isEmpty) return placeholder;
   try {
@@ -20,7 +17,6 @@ String formatIsoDate(String? isoDate, {String placeholder = ''}) {
   }
 }
 
-/// Converts snake_case to Title Case (e.g. employment_status values).
 String titleCaseOrPlaceholder(String? value, {String placeholder = ''}) {
   if (value == null || value.isEmpty) return placeholder;
   return value
@@ -29,8 +25,6 @@ String titleCaseOrPlaceholder(String? value, {String placeholder = ''}) {
       .join(' ');
 }
 
-/// Unwraps the various shapes the credits endpoint can come back in —
-/// {"credits": [...]}, {"data": [...]}, or a bare list.
 List<dynamic> extractCreditsList(dynamic creditData) {
   if (creditData is Map) {
     if (creditData["credits"] is List) return creditData["credits"];
@@ -42,8 +36,6 @@ List<dynamic> extractCreditsList(dynamic creditData) {
   return <dynamic>[];
 }
 
-/// Shows the shared "Confirm Logout" dialog and, if confirmed, logs the
-/// user out and returns to the login screen.
 Future<void> confirmAndLogout(BuildContext context) async {
   final confirm = await showDialog<bool>(
     context: context,

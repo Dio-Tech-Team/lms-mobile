@@ -1,15 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 
 class LeaveOverviewStrip extends StatelessWidget {
   final List<dynamic> credits;
   final int pendingCount;
   final dynamic year;
-
-  /// Leave type name -> total approved days_applied, from actual approved
-  /// applications. Used to reconstruct each type's true total, since the
-  /// API's used_credits/total_credits fields aren't reliable, and
-  /// remaining_balance may or may not already be decremented depending on
-  /// the leave type.
   final Map<String, double> approvedUsedByType;
 
   const LeaveOverviewStrip({
@@ -36,10 +31,6 @@ class LeaveOverviewStrip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Total/Used/Remaining reflect combined Vacation Leave + Sick Leave
-    // only (the leave people actually track day-to-day) — not a sum of
-    // all leave types, which mixes unrelated fixed allocations together
-    // and isn't a meaningful single number.
     final vlEntry = _findLeaveType('Vacation Leave');
     final slEntry = _findLeaveType('Sick Leave');
 
@@ -47,12 +38,6 @@ class LeaveOverviewStrip extends StatelessWidget {
     final slUsed = approvedUsedByType['Sick Leave'] ?? 0;
     final vlRemaining = _field(vlEntry, "remaining_balance");
     final slRemaining = _field(slEntry, "remaining_balance");
-
-    // Reconstruct each type's true total as remaining + used, rather than
-    // trusting the API's total_credits (unreliable) or assuming
-    // remaining_balance is untouched by approvals (it isn't, always —
-    // some leave types get decremented on approval, some don't). This
-    // formula gives the correct total either way.
     final vlTotal = _field(vlEntry, "total_credits") > 0
         ? _field(vlEntry, "total_credits")
         : vlRemaining + vlUsed;
@@ -67,43 +52,53 @@ class LeaveOverviewStrip extends StatelessWidget {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(right: 12),
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 10),
+      padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.08),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.white.withOpacity(0.12)),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Colors.white.withOpacity(0.10),
+            Colors.white.withOpacity(0.04),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.14)),
       ),
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.only(left: 4, bottom: 12),
+            padding: const EdgeInsets.only(left: 4, bottom: 14),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Row(
                   children: [
-                    const Text(
+                    Text(
                       "OVERVIEW",
-                      style: TextStyle(
+                      style: GoogleFonts.nunito(
                         color: Colors.white54,
                         fontSize: 10.5,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 1.0,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 1.2,
                       ),
                     ),
                     const SizedBox(width: 6),
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 6,
+                        vertical: 2,
+                      ),
                       decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
+                        color: const Color(0xFF4EEAAA).withOpacity(0.14),
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      child: const Text(
+                      child: Text(
                         'VL + SL',
-                        style: TextStyle(
-                          color: Colors.white38,
+                        style: GoogleFonts.nunito(
+                          color: const Color(0xFF4EEAAA),
                           fontSize: 9,
-                          fontWeight: FontWeight.w600,
+                          fontWeight: FontWeight.w700,
                           letterSpacing: 0.4,
                         ),
                       ),
@@ -111,10 +106,14 @@ class LeaveOverviewStrip extends StatelessWidget {
                   ],
                 ),
                 Padding(
-                  padding: const EdgeInsets.only(right: 4),
+                  padding: const EdgeInsets.only(right: 2),
                   child: Text(
                     '${year ?? DateTime.now().year}',
-                    style: const TextStyle(color: Colors.white38, fontSize: 10.5),
+                    style: GoogleFonts.nunito(
+                      color: Colors.white38,
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
               ],
@@ -124,20 +123,27 @@ class LeaveOverviewStrip extends StatelessWidget {
             children: [
               _stat(
                 icon: Icons.event_available_rounded,
-                value: totalDays % 1 == 0 ? '${totalDays.toInt()}' : '$totalDays',
+                value: totalDays % 1 == 0
+                    ? '${totalDays.toInt()}'
+                    : '$totalDays',
                 label: 'Total',
               ),
+              _divider(),
               _stat(
                 icon: Icons.flight_takeoff_rounded,
                 value: usedDays % 1 == 0 ? '${usedDays.toInt()}' : '$usedDays',
                 label: 'Used',
               ),
+              _divider(),
               _stat(
                 icon: Icons.savings_rounded,
-                value: remaining % 1 == 0 ? '${remaining.toInt()}' : '$remaining',
+                value: remaining % 1 == 0
+                    ? '${remaining.toInt()}'
+                    : '$remaining',
                 label: 'Remaining',
                 highlight: true,
               ),
+              _divider(),
               _stat(
                 icon: Icons.pending_actions_rounded,
                 value: '$pendingCount',
@@ -150,31 +156,47 @@ class LeaveOverviewStrip extends StatelessWidget {
     );
   }
 
+  Widget _divider() {
+    return Container(
+      height: 34,
+      width: 1,
+      color: Colors.white.withOpacity(0.08),
+    );
+  }
+
   Widget _stat({
     required IconData icon,
     required String value,
     required String label,
     bool highlight = false,
   }) {
+    final color = highlight ? const Color(0xFF4EEAAA) : Colors.white;
     return Expanded(
       child: Column(
         children: [
-          Icon(icon,
-              size: 18,
-              color: highlight ? const Color(0xFF4EEAAA) : Colors.white70),
+          Icon(
+            icon,
+            size: 17,
+            color: highlight ? const Color(0xFF4EEAAA) : Colors.white60,
+          ),
           const SizedBox(height: 6),
           Text(
             value,
-            style: TextStyle(
-              color: highlight ? const Color(0xFF4EEAAA) : Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+            style: GoogleFonts.fraunces(
+              color: color,
+              fontSize: 19,
+              fontWeight: FontWeight.w700,
+              height: 1.0,
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 3),
           Text(
             label,
-            style: const TextStyle(color: Colors.white54, fontSize: 10.5),
+            style: GoogleFonts.nunito(
+              color: Colors.white54,
+              fontSize: 10.5,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ],
       ),
