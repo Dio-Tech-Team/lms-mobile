@@ -11,6 +11,7 @@ import '../widgets/leave_type_card.dart';
 import '../widgets/leave_overview_strips.dart';
 import '../screentabs/profilepage.dart';
 import '../screentabs/leave_monetization.dart';
+import '../screentabs/history_logs.dart';
 import '../utils/employee_app_utils.dart';
 
 class HomePage extends StatefulWidget {
@@ -139,10 +140,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  /// Employee/employment-status data now comes from AuthProvider, which
-  /// caches results for ~30s and de-dupes concurrent requests. This is what
-  /// stops HomePage and ProfilePage from both hitting /employees/{id} at
-  /// the same time and tripping the API's rate limiter (429).
   Future<void> _loadEmploymentStatus() async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     if (auth.token == null || auth.employeeId == null) return;
@@ -585,15 +582,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                 apiRemaining,
                               );
 
+                        final usedForType = isDynamic
+                            ? approvedUsed
+                            : toDoubleOrZero(credit["used_credits"]);
+                        final effectiveRemaining = isDynamic
+                            ? apiRemaining
+                            : (apiTotal > 0
+                                  ? apiRemaining
+                                  : (effectiveTotal - usedForType).clamp(
+                                      0.0,
+                                      effectiveTotal,
+                                    ));
+
                         return SizedBox(
                           width: _leaveTypeCardWidth,
                           child: LeaveTypeCard(
                             leaveType: leaveTypeName,
-                            remaining: apiRemaining,
+                            remaining: effectiveRemaining,
                             total: effectiveTotal,
-                            used: isDynamic
-                                ? approvedUsed
-                                : toDoubleOrZero(credit["used_credits"]),
+                            used: usedForType,
                             accentColor:
                                 _accentColors[index % _accentColors.length],
                             isDynamic: isDynamic,
@@ -821,8 +828,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 index: 2,
               ),
               _bottomNavItem(
-                icon: Icons.settings_outlined,
-                label: 'Settings',
+                icon: Icons.history_rounded,
+                label: 'Logs',
                 index: 3,
               ),
             ],
@@ -856,7 +863,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _buildHomeContent(),
           const ApplyForLeaveMonetization(),
           ProfilePage(isActive: _selectedIndex == 2),
-          _buildPlaceholderTab('Settings'),
+          const LeaveLogsPage(),
         ],
       ),
     );

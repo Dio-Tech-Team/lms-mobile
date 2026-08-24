@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../services/leave_application_service.dart';
@@ -191,25 +192,22 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
             pinned: true,
             elevation: 0,
             backgroundColor: _navy,
-            expandedHeight: 120,
             iconTheme: const IconThemeData(color: Colors.white),
-            flexibleSpace: FlexibleSpaceBar(
-              titlePadding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
-              title: const Text(
-                'Apply for Leave',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                ),
+            centerTitle: false,
+            title: Text(
+              'Apply for Leave',
+              style: GoogleFonts.fraunces(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
               ),
-              background: Container(
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [_navyDark, _navy],
-                  ),
+            ),
+            flexibleSpace: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [_navyDark, _navy],
                 ),
               ),
             ),
@@ -244,7 +242,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                             Expanded(
                               child: Text(
                                 _errorMessage!,
-                                style: const TextStyle(
+                                style: GoogleFonts.nunito(
                                   color: Colors.red,
                                   fontSize: 13,
                                 ),
@@ -256,7 +254,6 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                       const SizedBox(height: 16),
                     ],
 
-                    // Leave type card
                     _sectionCard(
                       icon: Icons.event_note_rounded,
                       label: 'Leave Type',
@@ -267,6 +264,10 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                         icon: const Icon(
                           Icons.keyboard_arrow_down_rounded,
                           color: _muted,
+                        ),
+                        style: GoogleFonts.nunito(
+                          color: _text,
+                          fontSize: 13.5,
                         ),
                         items: options
                             .map(
@@ -287,7 +288,6 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Dates card
                     _sectionCard(
                       icon: Icons.calendar_month_rounded,
                       label: 'Dates',
@@ -334,10 +334,10 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                                   const SizedBox(width: 8),
                                   Text(
                                     '$_numberOfDays day${_numberOfDays > 1 ? 's' : ''} requested',
-                                    style: const TextStyle(
+                                    style: GoogleFonts.nunito(
                                       color: _navy,
                                       fontSize: 12.5,
-                                      fontWeight: FontWeight.w600,
+                                      fontWeight: FontWeight.w700,
                                     ),
                                   ),
                                 ],
@@ -349,16 +349,16 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                     ),
                     const SizedBox(height: 16),
 
-                    // Reason card
                     _sectionCard(
                       icon: Icons.notes_rounded,
                       label: 'Reason',
                       child: TextFormField(
                         controller: _reasonController,
                         maxLines: 4,
+                        style: GoogleFonts.nunito(fontSize: 13.5, color: _text),
                         decoration: _fieldDecoration(
                           hint:
-                              'Briefly describe your reason for leave (optional)',
+                              'Briefly describe your reason for leave',
                         ),
                       ),
                     ),
@@ -386,11 +386,11 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                                   strokeWidth: 2.5,
                                 ),
                               )
-                            : const Text(
+                            : Text(
                                 'Submit Request',
-                                style: TextStyle(
+                                style: GoogleFonts.nunito(
                                   fontSize: 15,
-                                  fontWeight: FontWeight.w600,
+                                  fontWeight: FontWeight.w700,
                                 ),
                               ),
                       ),
@@ -443,7 +443,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
               const SizedBox(width: 8),
               Text(
                 label,
-                style: const TextStyle(
+                style: GoogleFonts.nunito(
                   fontWeight: FontWeight.w700,
                   fontSize: 13.5,
                   color: _text,
@@ -461,7 +461,10 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
   InputDecoration _fieldDecoration({required String hint}) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: TextStyle(color: Colors.grey.shade400, fontSize: 13.5),
+      hintStyle: GoogleFonts.nunito(
+        color: Colors.grey.shade400,
+        fontSize: 13.5,
+      ),
       filled: true,
       fillColor: const Color(0xFFF5F6FA),
       contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),

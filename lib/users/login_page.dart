@@ -268,30 +268,6 @@ class _LoginPageState extends State<LoginPage> {
                 ),
               ),
             ),
-
-            Padding(
-              padding: const EdgeInsets.only(bottom: 32),
-              child: Center(
-                child: RichText(
-                  text: TextSpan(
-                    text: "Forgot your password? ",
-                    style: GoogleFonts.nunito(
-                      color: Colors.grey.shade600,
-                      fontSize: 13,
-                    ),
-                    children: [
-                      TextSpan(
-                        text: "Reset",
-                        style: GoogleFonts.nunito(
-                          color: _navy,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
           ],
         ),
       ),

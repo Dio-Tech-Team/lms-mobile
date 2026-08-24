@@ -1,7 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-/// A leave type available for selection when applying for leave,
-/// normalized from whatever shape the backend sends it in.
 class LeaveTypeOption {
   final int id;
   final String name;
@@ -21,9 +19,21 @@ class LeaveTypeOption {
   @override
   int get hashCode => id.hashCode;
 
-  /// Parses a raw list of leave-type maps (e.g. from an API response)
-  /// into a list of [LeaveTypeOption]s, tolerating several possible
-  /// key names for id/name/balance/code.
+  static const Map<String, double> _staticLeaveCaps = {
+    'Wellness Leave': 5,
+    'VAWC Leave': 10,
+    'Rehabilitation Leave': 180,
+    'Special Leave Benefits for Women': 60,
+    'Special Emergency (Calamity) Leave': 5,
+    'Adoption Leave': 60,
+    'Study Leave': 180,
+    'Mandatory/Forced Leave': 5,
+    'Maternity Leave': 105,
+    'Paternity Leave': 7,
+    'Special Privilege Leave': 3,
+    'Solo Parent Leave': 7,
+  };
+
   static List<LeaveTypeOption> listFromJson(List<dynamic>? raw) {
     final types = raw ?? [];
     debugPrint("DEBUG LeaveTypeOption received types: $types");
@@ -40,10 +50,6 @@ class LeaveTypeOption {
       if (rawId != null) {
         intId = rawId is int ? rawId : int.tryParse(rawId.toString());
       }
-
-      // No usable real id from the backend — this entry can't be safely
-      // submitted (its id would end up as leave_configuration_id in a
-      // leave application), so skip it rather than inventing one.
       if (intId == null) {
         debugPrint("DEBUG LeaveTypeOption skipped entry with no usable id: $c");
         continue;
@@ -55,9 +61,17 @@ class LeaveTypeOption {
 
       final rawBalance =
           c["remaining_balance"] ?? c["balance"] ?? c["remaining"] ?? 0;
-      final double balance = rawBalance is num
+      double balance = rawBalance is num
           ? rawBalance.toDouble()
           : (double.tryParse(rawBalance.toString()) ?? 0.0);
+
+      if (balance <= 0 && _staticLeaveCaps.containsKey(name)) {
+        debugPrint(
+          "DEBUG LeaveTypeOption '$name' had balance=$balance from API, "
+          "falling back to static cap ${_staticLeaveCaps[name]}",
+        );
+        balance = _staticLeaveCaps[name]!;
+      }
 
       options.add(
         LeaveTypeOption(

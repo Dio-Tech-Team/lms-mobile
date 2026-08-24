@@ -61,7 +61,6 @@ class LeaveMonetizationService {
 
       if (res.statusCode == 200) {
         final decoded = jsonDecode(res.body);
-        // Laravel's paginate() nests the rows under 'data'.
         final List<dynamic> list = decoded is Map && decoded['data'] is List
             ? List<dynamic>.from(decoded['data'])
             : (decoded is List ? decoded : []);

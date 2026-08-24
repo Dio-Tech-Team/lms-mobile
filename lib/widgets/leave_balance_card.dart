@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:google_fonts/google_fonts.dart';
+import '../screentabs/leave_monetization.dart';
 
 class LeaveBalanceCard extends StatelessWidget {
   final double totalDays;
@@ -7,13 +9,7 @@ class LeaveBalanceCard extends StatelessWidget {
   final double overallProgress;
   final dynamic year;
   final String? employeeName;
-
-  /// Vacation Leave remaining balance only — this is what's eligible
-  /// for monetization (VL only, not combined with Sick Leave).
   final double vlMonetizable;
-
-  /// Called when the user taps "Apply for Monetization".
-  /// If null, tapping shows a "coming soon" message instead.
   final VoidCallback? onApplyMonetization;
 
   static const double monetizationMinimumDays = 10;
@@ -49,7 +45,7 @@ class LeaveBalanceCard extends StatelessWidget {
         children: [
           Text(
             'Your Total Balance for the Year ${year ?? DateTime.now().year}',
-            style: const TextStyle(
+            style: GoogleFonts.nunito(
               color: Colors.white60,
               fontSize: 11,
               fontWeight: FontWeight.w700,
@@ -69,23 +65,31 @@ class LeaveBalanceCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Total Credits',
-                          style:
-                              TextStyle(color: Colors.white60, fontSize: 12)),
+                      Text(
+                        'Total Credits',
+                        style: GoogleFonts.nunito(
+                          color: Colors.white60,
+                          fontSize: 12,
+                        ),
+                      ),
                       const SizedBox(height: 4),
                       Text(
                         totalDays % 1 == 0
                             ? '${totalDays.toInt()}'
                             : '$totalDays',
-                        style: const TextStyle(
+                        style: GoogleFonts.fraunces(
                           color: Colors.white,
                           fontSize: 32,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
-                      const Text('days allocated',
-                          style:
-                              TextStyle(color: Colors.white54, fontSize: 11)),
+                      Text(
+                        'days allocated',
+                        style: GoogleFonts.nunito(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -101,26 +105,32 @@ class LeaveBalanceCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Can Monetize',
-                          style:
-                              TextStyle(color: Colors.white60, fontSize: 12)),
+                      Text(
+                        'Can Monetize',
+                        style: GoogleFonts.nunito(
+                          color: Colors.white60,
+                          fontSize: 12,
+                        ),
+                      ),
                       const SizedBox(height: 4),
                       Text(
                         vlMonetizable % 1 == 0
                             ? '${vlMonetizable.toInt()}'
                             : '$vlMonetizable',
-                        style: const TextStyle(
-                          color: Color(0xFF4EEAAA),
+                        style: GoogleFonts.fraunces(
+                          color: const Color(0xFF4EEAAA),
                           fontSize: 32,
-                          fontWeight: FontWeight.bold,
+                          fontWeight: FontWeight.w600,
                         ),
                       ),
                       Text(
                         isEligible
                             ? 'Eligible · min. ${monetizationMinimumDays.toInt()} VL days'
                             : 'Requires min. ${monetizationMinimumDays.toInt()} VL days',
-                        style: const TextStyle(
-                            color: Colors.white54, fontSize: 11),
+                        style: GoogleFonts.nunito(
+                          color: Colors.white54,
+                          fontSize: 11,
+                        ),
                       ),
                     ],
                   ),
@@ -134,26 +144,28 @@ class LeaveBalanceCard extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: onApplyMonetization ??
                   () {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Monetization application is coming soon.',
-                        ),
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            const ApplyForLeaveMonetization(),
                       ),
                     );
                   },
               icon: const Icon(Icons.savings_outlined, size: 18),
-              label: const Text('Apply for Monetization'),
+              label: Text(
+                'Apply for Monetization',
+                style: GoogleFonts.nunito(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF4EEAAA),
                 foregroundColor: const Color(0xFF13224A),
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
-                ),
-                textStyle: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w700,
                 ),
               ),
             ),
