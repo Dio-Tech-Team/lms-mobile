@@ -1,11 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../providers/auth_providers.dart';
-import '../services/leave_credit_service.dart';
-import '../widgets/leave_balance_card.dart';
 import '../utils/employee_app_utils.dart';
+import '../utils/app_theme.dart';
 
 class ProfilePage extends StatefulWidget {
   final bool isActive;
@@ -17,45 +15,13 @@ class ProfilePage extends StatefulWidget {
   State<ProfilePage> createState() => _ProfilePageState();
 }
 
-class _ProfilePageState extends State<ProfilePage>
-    with WidgetsBindingObserver {
+class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   Map<String, dynamic>? _employee;
-  Map<String, dynamic>? _creditData;
   bool _isLoading = true;
   String? _errorMessage;
 
   Timer? _refreshTimer;
-  static const Duration _networkTimeout = Duration(seconds: 10);
-  static const Duration _refreshInterval = Duration(seconds: 20);
-  static TextStyle _serif({
-    required double size,
-    FontWeight weight = FontWeight.w600,
-    Color color = _navy,
-    double? letterSpacing,
-  }) => GoogleFonts.playfairDisplay(
-    fontSize: size,
-    fontWeight: weight,
-    color: color,
-    letterSpacing: letterSpacing,
-  );
-
-  static TextStyle _sans({
-    required double size,
-    FontWeight weight = FontWeight.w500,
-    Color color = _navy,
-    double? letterSpacing,
-  }) => GoogleFonts.workSans(
-    fontSize: size,
-    fontWeight: weight,
-    color: color,
-    letterSpacing: letterSpacing,
-  );
-
-  static const Color _navy = Color(0xFF13224A);
-  static const Color _muted = Color(0xFF8A97A8);
-  static const Color _bg = Color(0xFFF3F5F9);
-  static const Color _hairline = Color(0xFFEDEFF4);
-  static const Color _gold = Color(0xFFC9A24B);
+  static const Duration _refreshInterval = Duration(seconds: 60);
 
   @override
   void initState() {
@@ -132,10 +98,6 @@ class _ProfilePageState extends State<ProfilePage>
     try {
       await auth.fetchEmployeeDetails(silent: silent);
 
-      final creditResult = await LeaveCreditService.getCredits(
-        token,
-      ).timeout(_networkTimeout);
-
       if (auth.employee == null) {
         if (!mounted) return;
         setState(() {
@@ -150,9 +112,6 @@ class _ProfilePageState extends State<ProfilePage>
       if (!mounted) return;
       setState(() {
         _employee = auth.employee;
-        _creditData = creditResult['success'] == true
-            ? creditResult['data']
-            : null;
         _isLoading = false;
         _errorMessage = null;
       });
@@ -193,49 +152,21 @@ class _ProfilePageState extends State<ProfilePage>
 
   @override
   Widget build(BuildContext context) {
-    final credits = extractCreditsList(_creditData);
-    final vlEntry = credits.firstWhere(
-      (c) =>
-          (c["leave_type"] ?? c["name"] ?? "").toString() == 'Vacation Leave',
-      orElse: () => null,
-    );
-    final slEntry = credits.firstWhere(
-      (c) => (c["leave_type"] ?? c["name"] ?? "").toString() == 'Sick Leave',
-      orElse: () => null,
-    );
-
-    double vlSlField(dynamic entry, String field) =>
-        entry != null ? toDoubleOrZero(entry[field]) : 0.0;
-    final vlTotal = vlSlField(vlEntry, "total_credits") > 0
-        ? vlSlField(vlEntry, "total_credits")
-        : vlSlField(vlEntry, "remaining_balance");
-    final slTotal = vlSlField(slEntry, "total_credits") > 0
-        ? vlSlField(slEntry, "total_credits")
-        : vlSlField(slEntry, "remaining_balance");
-
-    final totalDays = vlTotal + slTotal;
-    final usedDays =
-        vlSlField(vlEntry, "used_credits") + vlSlField(slEntry, "used_credits");
-    final remaining = totalDays - usedDays;
-    final overallProgress = totalDays > 0
-        ? (usedDays / totalDays).clamp(0.0, 1.0)
-        : 0.0;
-    final vlMonetizable = vlSlField(vlEntry, "remaining_balance");
-
     return Container(
-      color: _bg,
+      color: AppColors.bg,
       child: RefreshIndicator(
         onRefresh: () => _loadAll(),
-        color: _navy,
+        color: AppColors.navy,
         child: ListView(
           padding: EdgeInsets.zero,
+          physics: const AlwaysScrollableScrollPhysics(),
           children: [
             _buildHeader(),
             if (_isLoading)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 60),
                 child: Center(
-                  child: CircularProgressIndicator(color: _navy),
+                  child: CircularProgressIndicator(color: AppColors.navy),
                 ),
               )
             else if (_errorMessage != null)
@@ -244,38 +175,51 @@ class _ProfilePageState extends State<ProfilePage>
                 child: Center(
                   child: Text(
                     _errorMessage!,
-                    style: _sans(size: 13, color: Colors.red.shade700),
+                    style: AppText.body(size: 13, color: Colors.red.shade700),
                   ),
                 ),
               )
             else
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 28),
+                padding: const EdgeInsets.fromLTRB(16, 22, 16, 28),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     _buildSectionLabel('Work Information'),
                     const SizedBox(height: 10),
                     _buildInfoCard(),
-                    const SizedBox(height: 26),
-                    if (_creditData != null) ...[
-                      _buildSectionLabel('Leave Balance'),
-                      const SizedBox(height: 10),
-                      LeaveBalanceCard(
-                        totalDays: totalDays,
-                        usedDays: usedDays,
-                        remaining: remaining,
-                        overallProgress: overallProgress,
-                        vlMonetizable: vlMonetizable,
-                        year: _creditData?["year"],
-                        employeeName: _creditData?["employee"],
-                      ),
-                      const SizedBox(height: 26),
-                    ],
+                    const SizedBox(height: 32),
+                    _buildLogoutButton(context),
                   ],
                 ),
               ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLogoutButton(BuildContext context) {
+    return SizedBox(
+      width: double.infinity,
+      height: 52,
+      child: OutlinedButton.icon(
+        onPressed: () => confirmAndLogout(context),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: AppColors.danger,
+          side: BorderSide(color: AppColors.danger.withOpacity(0.35)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+          ),
+        ),
+        icon: const Icon(Icons.logout_rounded, size: 18),
+        label: Text(
+          'Log Out',
+          style: AppText.body(
+            size: 14,
+            weight: FontWeight.w700,
+            color: AppColors.danger,
+          ),
         ),
       ),
     );
@@ -288,18 +232,16 @@ class _ProfilePageState extends State<ProfilePage>
           width: 3,
           height: 15,
           decoration: BoxDecoration(
-            color: _gold,
+            color: AppColors.gold,
             borderRadius: BorderRadius.circular(2),
           ),
         ),
         const SizedBox(width: 8),
         Text(
           label.toUpperCase(),
-          style: _sans(
+          style: AppText.eyebrow(
             size: 11.5,
-            weight: FontWeight.w700,
-            color: _navy.withOpacity(0.55),
-            letterSpacing: 1.1,
+            color: AppColors.navyDark.withOpacity(0.55),
           ),
         ),
       ],
@@ -310,108 +252,89 @@ class _ProfilePageState extends State<ProfilePage>
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0F1B3D), Color(0xFF1B3B63)],
-        ),
+        gradient: AppColors.headerGradient,
         borderRadius: BorderRadius.only(
           bottomLeft: Radius.circular(28),
           bottomRight: Radius.circular(28),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x38131F3A),
+            blurRadius: 20,
+            offset: Offset(0, 8),
+          ),
+        ],
       ),
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 12, 30),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 22),
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  Material(
-                    color: Colors.white.withOpacity(0.08),
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.logout_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      onPressed: () => confirmAndLogout(context),
-                    ),
-                  ),
-                ],
+              Text(
+                'PROFILE',
+                style: AppText.eyebrow(
+                  size: 11,
+                  color: Colors.white.withOpacity(0.55),
+                ),
               ),
               if (_employee != null) ...[
-                Container(
-                  width: 82,
-                  height: 82,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withOpacity(0.10),
-                    border: Border.all(
-                      color: _gold.withOpacity(0.55),
-                      width: 1.5,
-                    ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withOpacity(0.18),
-                        blurRadius: 16,
-                        offset: const Offset(0, 6),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Container(
+                      width: 52,
+                      height: 52,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: Colors.white.withOpacity(0.10),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.16),
+                        ),
                       ),
-                    ],
-                  ),
-                  alignment: Alignment.center,
-                  child: Text(
-                    _initials(),
-                    style: _serif(
-                      size: 26,
-                      weight: FontWeight.w700,
-                      color: Colors.white,
+                      alignment: Alignment.center,
+                      child: Text(
+                        _initials(),
+                        style: AppText.display(
+                          size: 17,
+                          weight: FontWeight.w700,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 14),
-                Text(
-                  _fullName(),
-                  textAlign: TextAlign.center,
-                  style: _serif(size: 21, color: Colors.white),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  (_employee?['position']?.toString().isNotEmpty ?? false)
-                      ? _employee!['position'].toString()
-                      : 'Employee',
-                  style: _sans(
-                    size: 13,
-                    weight: FontWeight.w500,
-                    color: Colors.white.withOpacity(0.72),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: _gold.withOpacity(0.45)),
-                  ),
-                  child: Text(
-                    titleCaseOrPlaceholder(
-                      _employee?['employment_status']?.toString(),
-                      placeholder: '—',
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _fullName(),
+                            style: AppText.display(
+                              size: 20,
+                              weight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                          if ((_employee?['position'] ?? '')
+                              .toString()
+                              .isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              _employee!['position'].toString(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppText.body(
+                                size: 12.5,
+                                weight: FontWeight.w500,
+                                color: Colors.white60,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
-                    style: _sans(
-                      size: 11,
-                      weight: FontWeight.w700,
-                      color: _gold.withOpacity(0.95),
-                      letterSpacing: 0.6,
-                    ),
-                  ),
+                  ],
                 ),
               ],
             ],
@@ -426,12 +349,17 @@ class _ProfilePageState extends State<ProfilePage>
       (Icons.badge_outlined, 'ID Number', _employee?['id_number']),
       (Icons.work_outline_rounded, 'Position', _employee?['position']),
       (
-        Icons.event_outlined,
-        'Date Hired',
-        formatIsoDate(
-          _employee?['date_hired']?.toString(),
+        Icons.verified_outlined,
+        'Employment Status',
+        titleCaseOrPlaceholder(
+          _employee?['employment_status']?.toString(),
           placeholder: '—',
         ),
+      ),
+      (
+        Icons.event_outlined,
+        'Date Hired',
+        formatIsoDate(_employee?['date_hired']?.toString(), placeholder: '—'),
       ),
       (Icons.apartment_rounded, 'Department', _employee?['department']),
       (Icons.mail_outline_rounded, 'Email', _employee?['email']),
@@ -440,12 +368,12 @@ class _ProfilePageState extends State<ProfilePage>
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: _hairline),
+        border: Border.all(color: AppColors.hairline),
         boxShadow: [
           BoxShadow(
-            color: _navy.withOpacity(0.04),
+            color: AppColors.navyDark.withOpacity(0.04),
             blurRadius: 14,
             offset: const Offset(0, 4),
           ),
@@ -458,7 +386,7 @@ class _ProfilePageState extends State<ProfilePage>
             if (i != rows.length - 1)
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 16),
-                child: Divider(height: 1, color: _hairline),
+                child: Divider(height: 1, color: AppColors.hairline),
               ),
           ],
         ],
@@ -477,10 +405,10 @@ class _ProfilePageState extends State<ProfilePage>
             height: 32,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: _navy.withOpacity(0.06),
+              color: AppColors.navy.withOpacity(0.06),
               borderRadius: BorderRadius.circular(9),
             ),
-            child: Icon(icon, size: 16, color: _navy.withOpacity(0.7)),
+            child: Icon(icon, size: 16, color: AppColors.navy.withOpacity(0.7)),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -489,20 +417,20 @@ class _ProfilePageState extends State<ProfilePage>
               children: [
                 Text(
                   label,
-                  style: _sans(
+                  style: AppText.body(
                     size: 11.5,
                     weight: FontWeight.w600,
-                    color: _muted,
+                    color: AppColors.muted,
                     letterSpacing: 0.2,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   (value ?? '—').toString(),
-                  style: _sans(
+                  style: AppText.body(
                     size: 14,
                     weight: FontWeight.w600,
-                    color: _navy,
+                    color: AppColors.navyDark,
                   ),
                 ),
               ],

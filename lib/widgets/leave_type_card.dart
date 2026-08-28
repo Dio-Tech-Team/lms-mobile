@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
+import '../utils/app_theme.dart';
 
 class LeaveTypeCard extends StatelessWidget {
   final String leaveType;
@@ -19,18 +19,31 @@ class LeaveTypeCard extends StatelessWidget {
     this.isDynamic = true,
   });
 
+  /// Height reserved for the title. Two lines at 11px with height 1.2 is
+  /// ~26.4px; the card must reserve that whether or not this particular
+  /// leave type's name actually wraps, so every card in the horizontal
+  /// list aligns its number at the same baseline.
+  static const double _titleBlockHeight = 28;
+
+  String _fmt(double v) => v % 1 == 0 ? '${v.toInt()}' : '$v';
+
   @override
   Widget build(BuildContext context) {
     final progress = total > 0 ? (used / total).clamp(0.0, 1.0) : 0.0;
-    final isLow = remaining <= 2;
-    final accent = isLow ? const Color(0xFFE0475A) : accentColor;
     final bigValue = isDynamic ? remaining : total;
     final subtitleValue = isDynamic ? total : remaining;
+
+    // A leave type with total <= 0 simply hasn't been initialized/granted
+    // yet — that is NOT the same thing as a genuinely low remaining
+    // balance, so it must not get the same red "warning" treatment.
+    final notYetAvailable = total <= 0;
+    final isLow = !notYetAvailable && remaining <= 2;
+    final accent = isLow ? const Color(0xFFE0475A) : accentColor;
 
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: accent.withOpacity(0.10), width: 1),
         boxShadow: [
@@ -44,78 +57,88 @@ class LeaveTypeCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 4,
-                  ),
-                  decoration: BoxDecoration(
-                    color: accent.withOpacity(0.12),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
+          SizedBox(
+            height: _titleBlockHeight,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
                   child: Text(
                     leaveType,
+                    maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    maxLines: 1,
-                    style: GoogleFonts.nunito(
+                    style: AppText.body(
+                      size: 11,
+                      weight: FontWeight.w700,
                       color: accent,
-                      fontSize: 9.5,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.2,
+                      letterSpacing: 0.1,
+                      height: 1.2,
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: 4),
-              Container(
-                padding: const EdgeInsets.all(5),
-                decoration: BoxDecoration(
-                  color: accent.withOpacity(0.10),
-                  shape: BoxShape.circle,
+                const SizedBox(width: 6),
+                Container(
+                  padding: const EdgeInsets.all(5),
+                  decoration: BoxDecoration(
+                    color: accent.withOpacity(0.10),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(
+                    notYetAvailable
+                        ? Icons.hourglass_empty_rounded
+                        : isLow
+                        ? Icons.warning_amber_rounded
+                        : Icons.calendar_today_rounded,
+                    size: 13,
+                    color: accent,
+                  ),
                 ),
-                child: Icon(
-                  isLow
-                      ? Icons.warning_amber_rounded
-                      : Icons.calendar_today_rounded,
-                  size: 13,
-                  color: accent,
-                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          if (notYetAvailable) ...[
+            const Spacer(),
+            Text(
+              'Not yet\navailable',
+              style: AppText.body(
+                size: 12,
+                color: AppColors.muted,
+                height: 1.3,
               ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Text(
-            bigValue % 1 == 0 ? '${bigValue.toInt()}' : '$bigValue',
-            style: GoogleFonts.fraunces(
-              fontSize: 28,
-              fontWeight: FontWeight.w700,
-              color: const Color(0xFF13224A),
-              height: 1.0,
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            'of ${subtitleValue % 1 == 0 ? subtitleValue.toInt() : subtitleValue} days left',
-            style: GoogleFonts.nunito(
-              fontSize: 11,
-              color: const Color(0xFF8A97A8),
-              fontWeight: FontWeight.w500,
+            const Spacer(),
+          ] else ...[
+            Text(
+              _fmt(bigValue),
+              style: AppText.display(
+                size: 28,
+                weight: FontWeight.w700,
+                color: AppColors.navyDark,
+                height: 1.0,
+              ),
             ),
-          ),
-          const Spacer(),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child: LinearProgressIndicator(
-              value: progress,
-              minHeight: 5,
-              backgroundColor: accent.withOpacity(0.10),
-              valueColor: AlwaysStoppedAnimation<Color>(accent),
+            const SizedBox(height: 3),
+            Text(
+              'of ${_fmt(subtitleValue)} days left',
+              style: AppText.body(
+                size: 11,
+                weight: FontWeight.w500,
+                color: AppColors.muted,
+              ),
             ),
-          ),
+            const Spacer(),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: LinearProgressIndicator(
+                value: progress,
+                minHeight: 5,
+                backgroundColor: accent.withOpacity(0.10),
+                valueColor: AlwaysStoppedAnimation<Color>(accent),
+              ),
+            ),
+          ],
         ],
       ),
     );

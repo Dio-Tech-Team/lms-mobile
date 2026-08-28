@@ -1,13 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_providers.dart';
 import '../services/leave_credit_service.dart';
 import '../services/leave_monetization_service.dart';
+import '../utils/app_theme.dart';
 
 class ApplyForLeaveMonetization extends StatefulWidget {
-  const ApplyForLeaveMonetization({super.key});
+  /// False while another tab is showing. The parent keeps every tab alive
+  /// in an IndexedStack, so without this the form would fetch its configs
+  /// and credits at app start, for a screen nobody has opened yet.
+  final bool isActive;
+
+  const ApplyForLeaveMonetization({super.key, this.isActive = true});
 
   @override
   State<ApplyForLeaveMonetization> createState() =>
@@ -16,12 +21,7 @@ class ApplyForLeaveMonetization extends StatefulWidget {
 
 class _ApplyForLeaveMonetizationsState
     extends State<ApplyForLeaveMonetization> {
-  static const Color _navyDark = Color(0xFF13224A);
-  static const Color _navy = Color(0xFF1B3B63);
-  static const Color _text = Color(0xFF1E3A5F);
-  static const Color _muted = Color(0xFF8A97A8);
-  static const Color _green = Color(0xFF3A8C5C);
-  static const Duration _networkTimeout = Duration(seconds: 10);
+  static const Duration _networkTimeout = Duration(seconds: 30);
 
   final _formKey = GlobalKey<FormState>();
   final _daysController = TextEditingController();
@@ -29,7 +29,9 @@ class _ApplyForLeaveMonetizationsState
 
   bool _isLoading = true;
   bool _isSubmitting = false;
+  bool _hasLoaded = false;
   String? _loadError;
+  String? _successMessage;
 
   List<Map<String, dynamic>> _eligibleConfigs = [];
   List<dynamic> _credits = [];
@@ -38,7 +40,16 @@ class _ApplyForLeaveMonetizationsState
   @override
   void initState() {
     super.initState();
-    _loadData();
+    if (widget.isActive) _loadData();
+  }
+
+  @override
+  void didUpdateWidget(covariant ApplyForLeaveMonetization oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive && !oldWidget.isActive) {
+      // Balances may have changed while the user was on another tab.
+      _loadData(silent: _hasLoaded);
+    }
   }
 
   @override
@@ -48,16 +59,19 @@ class _ApplyForLeaveMonetizationsState
     super.dispose();
   }
 
-  Future<void> _loadData() async {
-    setState(() {
-      _isLoading = true;
-      _loadError = null;
-    });
+  Future<void> _loadData({bool silent = false}) async {
+    if (!silent) {
+      setState(() {
+        _isLoading = true;
+        _loadError = null;
+      });
+    }
 
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final token = auth.token;
 
     if (token == null) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _loadError = 'You must be logged in to file a request.';
@@ -80,7 +94,10 @@ class _ApplyForLeaveMonetizationsState
         if (!mounted) return;
         setState(() {
           _isLoading = false;
-          _loadError = configResult['message'] ?? 'Failed to load leave types.';
+          if (!silent) {
+            _loadError =
+                configResult['message'] ?? 'Failed to load leave types.';
+          }
         });
         return;
       }
@@ -105,16 +122,25 @@ class _ApplyForLeaveMonetizationsState
       setState(() {
         _eligibleConfigs = eligible;
         _credits = credits;
-        _selectedConfigId = eligible.isNotEmpty
-            ? eligible.first['id'] as int?
-            : null;
+        // Keep the user's current selection if it's still valid, so a
+        // background refresh doesn't reset a form they're filling in.
+        final stillValid = eligible.any((c) => c['id'] == _selectedConfigId);
+        if (!stillValid) {
+          _selectedConfigId = eligible.isNotEmpty
+              ? eligible.first['id'] as int?
+              : null;
+        }
         _isLoading = false;
+        _hasLoaded = true;
       });
     } catch (e) {
+      debugPrint('MONETIZATION LOAD FAILED: $e');
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _loadError = 'Something went wrong loading this form.';
+        if (!silent) {
+          _loadError = 'Something went wrong loading this form.';
+        }
       });
     }
   }
@@ -142,13 +168,17 @@ class _ApplyForLeaveMonetizationsState
   }
 
   Future<void> _submit() async {
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
     if (_selectedConfigId == null) {
       _showSnack('Please select a leave type.', isError: true);
       return;
     }
 
-    setState(() => _isSubmitting = true);
+    setState(() {
+      _isSubmitting = true;
+      _successMessage = null;
+    });
 
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final token = auth.token;
@@ -160,32 +190,53 @@ class _ApplyForLeaveMonetizationsState
 
     final days = double.parse(_daysController.text.trim());
 
-    final result = await LeaveMonetizationService.apply(
-      token: token,
-      leaveConfigurationId: _selectedConfigId!,
-      daysMonetized: days,
-      reason: _reasonController.text,
-    );
+    try {
+      final result = await LeaveMonetizationService.apply(
+        token: token,
+        leaveConfigurationId: _selectedConfigId!,
+        daysMonetized: days,
+        reason: _reasonController.text,
+      ).timeout(_networkTimeout);
 
-    if (!mounted) return;
-    setState(() => _isSubmitting = false);
+      if (!mounted) return;
 
-    if (result['success'] == true) {
-      _showSnack(result['message'] ?? 'Request submitted successfully.');
-      Navigator.pop(context, true);
-    } else {
-      _showSnack(
-        result['message'] ?? 'Failed to submit request.',
-        isError: true,
-      );
+      if (result['success'] == true) {
+        // This screen is a tab inside an IndexedStack, not a pushed route,
+        // so there is nothing to pop. Reset the form and show the result
+        // in place instead, then refresh balances to reflect the request.
+        _daysController.clear();
+        _reasonController.clear();
+        _formKey.currentState?.reset();
+        setState(() {
+          _isSubmitting = false;
+          _successMessage =
+              result['message'] ??
+              'Request submitted. HR will review it shortly.';
+        });
+        await _loadData(silent: true);
+      } else {
+        setState(() => _isSubmitting = false);
+        _showSnack(
+          result['message'] ?? 'Failed to submit request.',
+          isError: true,
+        );
+      }
+    } catch (e) {
+      debugPrint('MONETIZATION SUBMIT FAILED: $e');
+      if (!mounted) return;
+      setState(() => _isSubmitting = false);
+      _showSnack('The request timed out. Please try again.', isError: true);
     }
   }
 
   void _showSnack(String message, {bool isError = false}) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message, style: GoogleFonts.nunito()),
-        backgroundColor: isError ? Colors.redAccent : _green,
+        content: Text(
+          message,
+          style: AppText.body(size: 13, color: Colors.white),
+        ),
+        backgroundColor: isError ? AppColors.red : AppColors.green,
       ),
     );
   }
@@ -193,30 +244,26 @@ class _ApplyForLeaveMonetizationsState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFEEF0F5),
+      backgroundColor: AppColors.bg,
       body: CustomScrollView(
         slivers: [
           SliverAppBar(
             pinned: true,
             elevation: 0,
-            backgroundColor: _navy,
-            iconTheme: const IconThemeData(color: Colors.white),
+            backgroundColor: AppColors.navy,
+            automaticallyImplyLeading: false,
             centerTitle: false,
             title: Text(
               'Leave Monetization',
-              style: GoogleFonts.fraunces(
+              style: AppText.display(
+                size: 20,
+                weight: FontWeight.w700,
                 color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
               ),
             ),
             flexibleSpace: Container(
               decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [_navyDark, _navy],
-                ),
+                gradient: AppColors.headerGradient,
               ),
             ),
           ),
@@ -225,7 +272,7 @@ class _ApplyForLeaveMonetizationsState
                 ? const Padding(
                     padding: EdgeInsets.symmetric(vertical: 100),
                     child: Center(
-                      child: CircularProgressIndicator(color: _navy),
+                      child: CircularProgressIndicator(color: AppColors.navy),
                     ),
                   )
                 : _loadError != null
@@ -246,24 +293,24 @@ class _ApplyForLeaveMonetizationsState
         mainAxisSize: MainAxisSize.min,
         children: [
           const SizedBox(height: 30),
-          Icon(Icons.error_outline_rounded, color: Colors.red.shade300, size: 32),
+          Icon(
+            Icons.error_outline_rounded,
+            color: Colors.red.shade300,
+            size: 32,
+          ),
           const SizedBox(height: 14),
           Text(
             _loadError!,
             textAlign: TextAlign.center,
-            style: GoogleFonts.nunito(
-              color: Colors.red.shade600,
-              fontSize: 13.5,
-              fontWeight: FontWeight.w600,
-            ),
+            style: AppText.body(size: 13.5, color: Colors.red.shade600),
           ),
           const SizedBox(height: 18),
           SizedBox(
             height: 44,
             child: ElevatedButton(
-              onPressed: _loadData,
+              onPressed: () => _loadData(),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _navy,
+                backgroundColor: AppColors.navy,
                 foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
@@ -272,8 +319,12 @@ class _ApplyForLeaveMonetizationsState
                 padding: const EdgeInsets.symmetric(horizontal: 24),
               ),
               child: Text(
-                'Retry',
-                style: GoogleFonts.nunito(fontWeight: FontWeight.w700),
+                'Try again',
+                style: AppText.body(
+                  size: 13.5,
+                  weight: FontWeight.w700,
+                  color: Colors.white,
+                ),
               ),
             ),
           ),
@@ -290,14 +341,55 @@ class _ApplyForLeaveMonetizationsState
           const SizedBox(height: 40),
           Icon(
             Icons.inbox_rounded,
-            color: _muted.withOpacity(0.4),
+            color: AppColors.muted.withOpacity(0.4),
             size: 32,
           ),
           const SizedBox(height: 14),
           Text(
             'No leave types are currently eligible for monetization.',
             textAlign: TextAlign.center,
-            style: GoogleFonts.nunito(color: _muted, fontSize: 13.5),
+            style: AppText.body(
+              size: 13.5,
+              weight: FontWeight.w500,
+              color: AppColors.muted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSuccessBanner() {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
+      decoration: BoxDecoration(
+        color: AppColors.green.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.green.withOpacity(0.3)),
+      ),
+      child: Row(
+        children: [
+          const Icon(
+            Icons.check_circle_outline_rounded,
+            size: 18,
+            color: AppColors.green,
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              _successMessage!,
+              style: AppText.body(size: 12.5, color: AppColors.green),
+            ),
+          ),
+          GestureDetector(
+            onTap: () => setState(() => _successMessage = null),
+            child: Icon(
+              Icons.close_rounded,
+              size: 16,
+              color: AppColors.green.withOpacity(0.7),
+            ),
           ),
         ],
       ),
@@ -308,9 +400,8 @@ class _ApplyForLeaveMonetizationsState
     final remaining = _selectedRemainingBalance;
     final daysText = _daysController.text.trim();
     final requestedDays = double.tryParse(daysText);
-    final overBalance = remaining != null &&
-        requestedDays != null &&
-        requestedDays > remaining;
+    final overBalance =
+        remaining != null && requestedDays != null && requestedDays > remaining;
 
     return Form(
       key: _formKey,
@@ -319,7 +410,8 @@ class _ApplyForLeaveMonetizationsState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Leave type card
+            if (_successMessage != null) _buildSuccessBanner(),
+
             _sectionCard(
               icon: Icons.event_note_rounded,
               label: 'Leave Type',
@@ -338,12 +430,9 @@ class _ApplyForLeaveMonetizationsState
                         value: _selectedConfigId,
                         icon: const Icon(
                           Icons.keyboard_arrow_down_rounded,
-                          color: _muted,
+                          color: AppColors.muted,
                         ),
-                        style: GoogleFonts.nunito(
-                          color: _text,
-                          fontSize: 13.5,
-                        ),
+                        style: AppText.body(size: 13.5),
                         items: _eligibleConfigs
                             .map(
                               (c) => DropdownMenuItem<int>(
@@ -369,7 +458,7 @@ class _ApplyForLeaveMonetizationsState
                         horizontal: 14,
                       ),
                       decoration: BoxDecoration(
-                        color: _navy.withOpacity(0.07),
+                        color: AppColors.navy.withOpacity(0.07),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
@@ -377,15 +466,15 @@ class _ApplyForLeaveMonetizationsState
                           const Icon(
                             Icons.savings_rounded,
                             size: 16,
-                            color: _navy,
+                            color: AppColors.navy,
                           ),
                           const SizedBox(width: 8),
                           Text(
-                            'Remaining balance: ${remaining.toStringAsFixed(1)} day(s)',
-                            style: GoogleFonts.nunito(
-                              color: _navy,
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
+                            'Remaining balance: '
+                            '${remaining.toStringAsFixed(1)} day(s)',
+                            style: AppText.body(
+                              size: 12.5,
+                              weight: FontWeight.w700,
                             ),
                           ),
                         ],
@@ -408,7 +497,7 @@ class _ApplyForLeaveMonetizationsState
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    style: GoogleFonts.nunito(fontSize: 13.5, color: _text),
+                    style: AppText.body(size: 13.5),
                     onChanged: (_) => setState(() {}),
                     decoration: _fieldDecoration(hint: 'e.g. 10 or 10.000'),
                     validator: (value) {
@@ -418,7 +507,8 @@ class _ApplyForLeaveMonetizationsState
                       if (parsed == null) return 'Enter a valid number.';
                       if (parsed < 0.5) return 'Minimum is 0.5 day.';
                       if (remaining != null && parsed > remaining) {
-                        return 'Exceeds your remaining balance of ${remaining.toStringAsFixed(1)} day(s).';
+                        return 'Exceeds your remaining balance of '
+                            '${remaining.toStringAsFixed(1)} day(s).';
                       }
                       return null;
                     },
@@ -432,7 +522,7 @@ class _ApplyForLeaveMonetizationsState
                         horizontal: 14,
                       ),
                       decoration: BoxDecoration(
-                        color: (overBalance ? Colors.red : _navy)
+                        color: (overBalance ? AppColors.red : AppColors.navy)
                             .withOpacity(0.07),
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -443,20 +533,21 @@ class _ApplyForLeaveMonetizationsState
                                 ? Icons.warning_amber_rounded
                                 : Icons.timelapse_rounded,
                             size: 16,
-                            color: overBalance ? Colors.red.shade400 : _navy,
+                            color: overBalance ? AppColors.red : AppColors.navy,
                           ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
                               overBalance
                                   ? 'Exceeds your remaining balance'
-                                  : '$requestedDays day(s) requested for monetization',
-                              style: GoogleFonts.nunito(
+                                  : '$requestedDays day(s) requested for '
+                                        'monetization',
+                              style: AppText.body(
+                                size: 12.5,
+                                weight: FontWeight.w700,
                                 color: overBalance
-                                    ? Colors.red.shade400
-                                    : _navy,
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w700,
+                                    ? AppColors.red
+                                    : AppColors.navy,
                               ),
                             ),
                           ),
@@ -475,9 +566,11 @@ class _ApplyForLeaveMonetizationsState
               child: TextFormField(
                 controller: _reasonController,
                 maxLines: 4,
-                style: GoogleFonts.nunito(fontSize: 13.5, color: _text),
+                style: AppText.body(size: 13.5),
                 decoration: _fieldDecoration(
-                  hint: 'Add a note for the HR admin reviewing this request (optional)',
+                  hint:
+                      'Add a note for the HR admin reviewing this request '
+                      '(optional)',
                 ),
               ),
             ),
@@ -489,27 +582,43 @@ class _ApplyForLeaveMonetizationsState
               child: ElevatedButton(
                 onPressed: _isSubmitting ? null : _submit,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: _navy,
+                  backgroundColor: AppColors.navy,
                   foregroundColor: Colors.white,
+                  disabledBackgroundColor: AppColors.navy.withOpacity(0.5),
                   elevation: 0,
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
                 child: _isSubmitting
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2.5,
-                        ),
+                    ? Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2.5,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Text(
+                            'Submitting...',
+                            style: AppText.body(
+                              size: 15,
+                              weight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ],
                       )
                     : Text(
-                        'Submit Request',
-                        style: GoogleFonts.nunito(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w700,
+                        'Submit request',
+                        style: AppText.body(
+                          size: 15,
+                          weight: FontWeight.w700,
+                          color: Colors.white,
                         ),
                       ),
               ),
@@ -530,11 +639,12 @@ class _ApplyForLeaveMonetizationsState
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: AppColors.surface,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: AppColors.hairline),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.04),
+            color: AppColors.navyDark.withOpacity(0.04),
             blurRadius: 10,
             offset: const Offset(0, 3),
           ),
@@ -549,20 +659,16 @@ class _ApplyForLeaveMonetizationsState
                 width: 28,
                 height: 28,
                 decoration: BoxDecoration(
-                  color: _navy.withOpacity(0.08),
+                  color: AppColors.navy.withOpacity(0.08),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 alignment: Alignment.center,
-                child: Icon(icon, size: 15, color: _navy),
+                child: Icon(icon, size: 15, color: AppColors.navy),
               ),
               const SizedBox(width: 8),
               Text(
                 label,
-                style: GoogleFonts.nunito(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 13.5,
-                  color: _text,
-                ),
+                style: AppText.body(size: 13.5, weight: FontWeight.w700),
               ),
             ],
           ),
@@ -576,9 +682,10 @@ class _ApplyForLeaveMonetizationsState
   InputDecoration _fieldDecoration({required String hint}) {
     return InputDecoration(
       hintText: hint,
-      hintStyle: GoogleFonts.nunito(
+      hintStyle: AppText.body(
+        size: 13.5,
+        weight: FontWeight.w500,
         color: Colors.grey.shade400,
-        fontSize: 13.5,
       ),
       filled: true,
       fillColor: const Color(0xFFF5F6FA),
@@ -593,7 +700,7 @@ class _ApplyForLeaveMonetizationsState
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: _navy, width: 1.4),
+        borderSide: const BorderSide(color: AppColors.navy, width: 1.4),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(10),

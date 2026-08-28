@@ -4,8 +4,12 @@ import 'providers/auth_providers.dart';
 import 'users/login_page.dart';
 import 'users/force_change_password_page.dart';
 import 'screentabs/homepage.dart';
+import 'package:google_fonts/google_fonts.dart';
+import 'utils/app_theme.dart';
 
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
+  GoogleFonts.config.allowRuntimeFetching = false;
   runApp(
     MultiProvider(
       providers: [
@@ -25,7 +29,7 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       title: 'LeaveSync',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+        colorScheme: ColorScheme.fromSeed(seedColor: AppColors.navy),
       ),
       home: const AuthWrapper(),
       routes: {'/home': (context) => const AuthWrapper()},

@@ -2,17 +2,16 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:printing/printing.dart';
-import 'package:google_fonts/google_fonts.dart';
 import '../providers/auth_providers.dart';
 import '../services/leave_credit_service.dart';
 import '../services/leave_application_service.dart';
 import '../screentabs/apply_for_leave.dart';
 import '../widgets/leave_type_card.dart';
-import '../widgets/leave_overview_strips.dart';
 import '../screentabs/profilepage.dart';
 import '../screentabs/leave_monetization.dart';
 import '../screentabs/history_logs.dart';
 import '../utils/employee_app_utils.dart';
+import '../utils/app_theme.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -34,27 +33,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _isLoadingPending = true;
 
   Timer? _refreshTimer;
-  static const Duration _networkTimeout = Duration(seconds: 10);
-  static const Duration _pendingRefreshInterval = Duration(seconds: 15);
-  static const Duration _refreshInterval = Duration(seconds: 30);
+  static const Duration _networkTimeout = Duration(seconds: 30);
+  static const Duration _pendingRefreshInterval = Duration(minutes: 2);
+  static const Duration _refreshInterval = Duration(minutes: 2);
 
-  static const double _leaveTypeCardWidth = 140;
-  static const double _leaveTypeCardHeight = 150;
-
-  static const Color _navy = Color(0xFF13224A);
-  static const Color _muted = Color(0xFF8A97A8);
-  static const Color _bg = Color(0xFFF3F5F9);
-
-  static const List<Color> _accentColors = [
-    Color(0xFF1E3A5F),
-    Color(0xFF7B5EA7),
-    Color(0xFFE07B39),
-    Color(0xFF2AABB8),
-    Color(0xFF3A8C5C),
-    Color(0xFFD94F70),
-  ];
+  static const double _leaveTypeCardWidth = 150;
+  static const double _leaveTypeCardHeight = 178;
 
   Timer? _pendingRefreshTimer;
+  DateTime? _lastResumeRefresh;
+
+  /// A Navigator scoped to just the tab-content area (below the app's
+  /// persistent nav bar). Any push made by a widget inside the tabs
+  /// resolves to THIS Navigator automatically, since Flutter looks up
+  /// the nearest ancestor Navigator — so sub-pages open on top of the
+  /// tab content while the bottom nav bar (which lives on the outer
+  /// Scaffold, outside this Navigator) stays put.
+  final GlobalKey<NavigatorState> _bodyNavigatorKey =
+      GlobalKey<NavigatorState>();
 
   @override
   void initState() {
@@ -81,12 +77,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed && _selectedIndex == 0) {
-      _loadCredits(silent: true);
-      _loadPendingApplications(silent: true);
-      _loadApprovedApplications(silent: true);
-      _loadEmploymentStatus();
+    if (state != AppLifecycleState.resumed || _selectedIndex != 0) return;
+
+    // Chrome fires `resumed` on every window focus change, which otherwise
+    // means four fresh requests each time the user clicks away and back.
+    final now = DateTime.now();
+    if (_lastResumeRefresh != null &&
+        now.difference(_lastResumeRefresh!) < const Duration(seconds: 30)) {
+      return;
     }
+    _lastResumeRefresh = now;
+
+    _loadCredits(silent: true);
+    _loadPendingApplications(silent: true);
+    _loadApprovedApplications(silent: true);
+    _loadEmploymentStatus();
   }
 
   @override
@@ -100,6 +105,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _loadCredits({bool silent = false}) async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final token = auth.token;
+
+    // TEMPORARY DIAGNOSTIC — remove once the data-loading issue is fixed.
+    debugPrint(
+      'LOAD CREDITS: hasToken=${token != null} employeeId=${auth.employeeId}',
+    );
 
     if (token == null) {
       if (!mounted) return;
@@ -119,6 +129,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         token,
       ).timeout(_networkTimeout);
 
+      // TEMPORARY DIAGNOSTIC — shows what the API actually returned.
+      debugPrint('LOAD CREDITS RESULT: $result');
+
       if (!mounted) return;
       setState(() {
         _isLoading = false;
@@ -129,7 +142,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           if (!silent) _errorMessage = result["message"];
         }
       });
-    } catch (_) {
+    } catch (e, st) {
+      // TEMPORARY DIAGNOSTIC — the old bare `catch (_)` reported every
+      // failure as a network error, which hid parse/cast/HTTP failures.
+      debugPrint('LOAD CREDITS FAILED: $e');
+      debugPrint('$st');
+
       if (!mounted) return;
       setState(() {
         _isLoading = false;
@@ -142,7 +160,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _loadEmploymentStatus() async {
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    if (auth.token == null || auth.employeeId == null) return;
+    if (auth.token == null || auth.employeeId == null) {
+      debugPrint(
+        'SKIPPED EMPLOYMENT STATUS: token=${auth.token != null} '
+        'employeeId=${auth.employeeId}',
+      );
+      return;
+    }
 
     await auth.fetchEmployeeDetails(silent: true);
 
@@ -162,6 +186,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _loadPendingApplications({bool silent = false}) async {
+    debugPrint('PENDING CALLED:\n${StackTrace.current}');
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final token = auth.token;
 
@@ -188,7 +213,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _pendingApplications = result['data'] as List<dynamic>;
         }
       });
-    } catch (_) {
+    } catch (e) {
+      debugPrint('LOAD PENDING FAILED: $e');
       if (!mounted) return;
       setState(() => _isLoadingPending = false);
     }
@@ -211,7 +237,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           _approvedApplications = result['data'] as List<dynamic>;
         });
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('LOAD APPROVED FAILED: $e');
+    }
   }
 
   Future<void> _viewPendingPdf(int applicationId) async {
@@ -222,9 +250,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const Center(
-        child: CircularProgressIndicator(color: _navy),
-      ),
+      builder: (_) =>
+          const Center(child: CircularProgressIndicator(color: AppColors.navy)),
     );
 
     try {
@@ -257,23 +284,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
-  String _hiredYearRange() {
-    final auth = Provider.of<AuthProvider>(context, listen: false);
-    final dateHired = auth.dateHired;
-    if (dateHired == null || dateHired.isEmpty) return '';
-    final parsed = DateTime.tryParse(dateHired);
-    if (parsed == null) return '';
-    final currentYear =
-        int.tryParse(_creditData?["year"]?.toString() ?? '') ??
-        DateTime.now().year;
-    return '${parsed.year}-$currentYear';
-  }
-
   Future<void> _goToApplyLeave() async {
     final credits = extractCreditsList(_creditData);
 
-    final result = await Navigator.push(
-      context,
+    final result = await _bodyNavigatorKey.currentState!.push(
       MaterialPageRoute(
         builder: (context) => ApplyForLeave(leaveTypes: credits),
       ),
@@ -334,115 +348,323 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return apiRemaining;
   }
 
-  Widget _buildWelcomeHeader(
-    Map<String, dynamic>? user, {
+  /// Finds a credit entry by leave type name. Mirrors the exact lookup
+  /// pattern already used in the leave-type card loop.
+  Map<String, dynamic> _findCredit(List<dynamic> credits, String typeName) {
+    for (final c in credits) {
+      final name = (c["leave_type"] ?? c["name"] ?? "").toString();
+      if (name == typeName) return c as Map<String, dynamic>;
+    }
+    return const {};
+  }
+
+  /// Computes remaining/total/used for one leave type using the same
+  /// formula already applied per-card in _buildHomeContent — kept as a
+  /// single source of truth so the overview and the cards can never
+  /// show different numbers for the same data.
+  Map<String, double> _statsForType(
+    String typeName,
+    List<dynamic> credits,
+    Map<String, double> approvedUsedByType,
+  ) {
+    final credit = _findCredit(credits, typeName);
+    final apiTotal = toDoubleOrZero(credit["total_credits"]);
+    final apiRemaining = toDoubleOrZero(credit["remaining_balance"]);
+    final isDynamic = _isDynamicLeaveType(typeName);
+    final approvedUsed = approvedUsedByType[typeName] ?? 0;
+
+    final effectiveTotal = isDynamic
+        ? (apiTotal > 0 ? apiTotal : apiRemaining + approvedUsed)
+        : _staticCapFor(typeName, apiTotal, apiRemaining);
+    final usedForType = isDynamic
+        ? approvedUsed
+        : toDoubleOrZero(credit["used_credits"]);
+    final effectiveRemaining = isDynamic
+        ? apiRemaining
+        : (apiTotal > 0
+              ? apiRemaining
+              : (effectiveTotal - usedForType).clamp(0.0, effectiveTotal));
+
+    return {
+      "remaining": effectiveRemaining,
+      "total": effectiveTotal,
+      "used": usedForType,
+    };
+  }
+
+  String _fmtDays(double v) =>
+      v % 1 == 0 ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+
+  Widget _overviewHeroStat({
+    required String label,
+    required IconData icon,
+    required double remaining,
+    required double total,
+    required Color accent,
+  }) {
+    final pct = total > 0 ? (remaining / total).clamp(0.0, 1.0) : 0.0;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.white.withOpacity(0.12)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 26,
+                height: 26,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: accent.withOpacity(0.2),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: accent, size: 13),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body(
+                    size: 11,
+                    weight: FontWeight.w700,
+                    color: Colors.white70,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.baseline,
+            textBaseline: TextBaseline.alphabetic,
+            children: [
+              Text(
+                _fmtDays(remaining),
+                style: AppText.display(
+                  size: 23,
+                  weight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '/ ${_fmtDays(total)}d',
+                style: AppText.body(
+                  size: 11,
+                  weight: FontWeight.w600,
+                  color: Colors.white54,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: pct,
+              minHeight: 4,
+              backgroundColor: Colors.white.withOpacity(0.12),
+              valueColor: AlwaysStoppedAnimation<Color>(accent),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _overviewPill({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.white70, size: 15),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  value,
+                  style: AppText.body(
+                    size: 14,
+                    weight: FontWeight.w800,
+                    color: Colors.white,
+                  ),
+                ),
+                Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body(
+                    size: 10,
+                    weight: FontWeight.w600,
+                    color: Colors.white54,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWelcomeHeader({
     required List<dynamic> credits,
     required int pendingCount,
     required Map<String, double> approvedUsedByType,
   }) {
-    final auth = Provider.of<AuthProvider>(context, listen: false);
-    final statusLabel = titleCaseOrPlaceholder(auth.employmentStatus);
-    final yearRange = _hiredYearRange();
-    final subtitle = [
-      statusLabel,
-      if (_department != null && _department!.isNotEmpty) _department!,
-      yearRange,
-    ].where((s) => s.isNotEmpty).join(' · ');
-
-    final username = (user?["username"] ?? "User").toString();
-    final initial = username.isNotEmpty ? username[0].toUpperCase() : 'U';
-
     return Container(
       width: double.infinity,
       decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF0F1B3D), Color(0xFF1B3B63)],
-        ),
+        gradient: AppColors.headerGradient,
         borderRadius: BorderRadius.only(
           bottomLeft: Radius.circular(28),
           bottomRight: Radius.circular(28),
         ),
+        boxShadow: [
+          BoxShadow(
+            color: Color(0x38131F3A),
+            blurRadius: 20,
+            offset: Offset(0, 8),
+          ),
+        ],
       ),
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 10, 16, 22),
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.12),
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: Colors.white.withOpacity(0.18),
-                      ),
-                    ),
-                    child: Text(
-                      initial,
-                      style: GoogleFonts.fraunces(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Hello, $username!',
-                          overflow: TextOverflow.ellipsis,
-                          style: GoogleFonts.fraunces(
-                            color: Colors.white,
-                            fontSize: 19,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        if (subtitle.isNotEmpty) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            subtitle,
-                            overflow: TextOverflow.ellipsis,
-                            style: GoogleFonts.nunito(
-                              color: Colors.white60,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                  ),
-                  Material(
-                    color: Colors.white.withOpacity(0.08),
-                    shape: const CircleBorder(),
-                    child: IconButton(
-                      icon: const Icon(
-                        Icons.logout_rounded,
-                        color: Colors.white,
-                        size: 20,
-                      ),
-                      onPressed: () => confirmAndLogout(context),
-                    ),
-                  ),
-                ],
+              Text(
+                'Home',
+                style: AppText.display(
+                  size: 26,
+                  weight: FontWeight.w700,
+                  color: Colors.white,
+                  letterSpacing: 0.2,
+                ),
               ),
               const SizedBox(height: 20),
-              LeaveOverviewStrip(
-                credits: credits,
-                pendingCount: pendingCount,
-                approvedUsedByType: approvedUsedByType,
-                year: _creditData?["year"],
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Colors.white.withOpacity(0.05),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withOpacity(0.10)),
+                ),
+                child: Builder(
+                  builder: (context) {
+                    final vl = _statsForType(
+                      'Vacation Leave',
+                      credits,
+                      approvedUsedByType,
+                    );
+                    final sl = _statsForType(
+                      'Sick Leave',
+                      credits,
+                      approvedUsedByType,
+                    );
+                    final usedThisYear = (vl['used'] ?? 0) + (sl['used'] ?? 0);
+                    final year = _creditData?["year"]?.toString() ?? '';
+
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              'OVERVIEW',
+                              style: AppText.eyebrow(
+                                size: 11,
+                                color: Colors.white60,
+                              ),
+                            ),
+                            if (year.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 9,
+                                  vertical: 3,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.08),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  year,
+                                  style: AppText.body(
+                                    size: 11,
+                                    weight: FontWeight.w700,
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 14),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _overviewHeroStat(
+                                label: 'Vacation Leave',
+                                icon: Icons.flight_takeoff_rounded,
+                                remaining: vl['remaining'] ?? 0,
+                                total: vl['total'] ?? 0,
+                                accent: AppColors.amber,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _overviewHeroStat(
+                                label: 'Sick Leave',
+                                icon: Icons.medical_services_outlined,
+                                remaining: sl['remaining'] ?? 0,
+                                total: sl['total'] ?? 0,
+                                accent: AppColors.teal,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _overviewPill(
+                                icon: Icons.event_busy_rounded,
+                                label: 'Used this year',
+                                value: '${_fmtDays(usedThisYear)}d',
+                              ),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: _overviewPill(
+                                icon: Icons.pending_actions_rounded,
+                                label: 'Pending',
+                                value: '$pendingCount',
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
             ],
           ),
@@ -455,27 +677,20 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          title,
-          style: GoogleFonts.fraunces(
-            fontSize: 17,
-            fontWeight: FontWeight.w600,
-            color: _navy,
-          ),
-        ),
+        Text(title, style: AppText.display(size: 17, weight: FontWeight.w600)),
         if (trailing != null)
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 3),
             decoration: BoxDecoration(
-              color: _navy.withOpacity(0.06),
+              color: AppColors.navy.withOpacity(0.06),
               borderRadius: BorderRadius.circular(20),
             ),
             child: Text(
               trailing,
-              style: GoogleFonts.nunito(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w700,
-                color: _navy.withOpacity(0.7),
+              style: AppText.body(
+                size: 11.5,
+                weight: FontWeight.w700,
+                color: AppColors.navy.withOpacity(0.7),
               ),
             ),
           ),
@@ -484,7 +699,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Widget _buildHomeContent() {
-    final user = Provider.of<AuthProvider>(context).user;
     final credits = extractCreditsList(_creditData);
     final approvedUsedByType = _approvedUsedByType();
 
@@ -495,12 +709,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         await _loadApprovedApplications();
         await _loadEmploymentStatus();
       },
-      color: _navy,
+      color: AppColors.navy,
       child: ListView(
         padding: EdgeInsets.zero,
         children: [
           _buildWelcomeHeader(
-            user,
             credits: credits,
             pendingCount: _pendingApplications.length,
             approvedUsedByType: approvedUsedByType,
@@ -509,33 +722,37 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 70),
               child: Center(
-                child: CircularProgressIndicator(color: _navy),
+                child: CircularProgressIndicator(color: AppColors.navy),
               ),
             )
           else if (_errorMessage != null)
             Padding(
               padding: const EdgeInsets.all(24),
               child: Container(
-                padding: const EdgeInsets.all(18),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 14,
+                ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFFCEAEA),
+                  color: const Color(0xFFFDECEC),
                   borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.red.withOpacity(0.35)),
                 ),
                 child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.error_outline_rounded,
-                      color: Color(0xFFD9455F),
-                      size: 20,
+                      color: Colors.red.shade700,
+                      size: 19,
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
                         _errorMessage!,
-                        style: GoogleFonts.nunito(
-                          color: const Color(0xFFB23A50),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 13,
+                        style: AppText.body(
+                          size: 13,
+                          color: Colors.red.shade700,
                         ),
                       ),
                     ),
@@ -545,7 +762,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             )
           else
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 22, 16, 24),
+              padding: const EdgeInsets.fromLTRB(16, 22, 16, 28),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -601,8 +818,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             remaining: effectiveRemaining,
                             total: effectiveTotal,
                             used: usedForType,
-                            accentColor:
-                                _accentColors[index % _accentColors.length],
+                            accentColor: AppColors
+                                .accents[index % AppColors.accents.length],
                             isDynamic: isDynamic,
                           ),
                         );
@@ -621,7 +838,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     const Padding(
                       padding: EdgeInsets.symmetric(vertical: 20),
                       child: Center(
-                        child: CircularProgressIndicator(color: _navy),
+                        child: CircularProgressIndicator(color: AppColors.navy),
                       ),
                     )
                   else if (_pendingApplications.isEmpty)
@@ -632,32 +849,48 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         horizontal: 20,
                       ),
                       decoration: BoxDecoration(
-                        color: Colors.white,
+                        color: AppColors.surface,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: const Color(0xFFEDEFF4)),
+                        border: Border.all(color: AppColors.hairline),
+                        boxShadow: [
+                          BoxShadow(
+                            color: AppColors.navy.withOpacity(0.04),
+                            blurRadius: 12,
+                            offset: const Offset(0, 4),
+                          ),
+                        ],
                       ),
                       child: Column(
                         children: [
-                          Icon(
-                            Icons.task_alt_rounded,
-                            color: _muted.withOpacity(0.5),
-                            size: 26,
+                          Container(
+                            width: 48,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: AppColors.navy.withOpacity(0.06),
+                              shape: BoxShape.circle,
+                            ),
+                            alignment: Alignment.center,
+                            child: Icon(
+                              Icons.task_alt_rounded,
+                              color: AppColors.navy.withOpacity(0.55),
+                              size: 24,
+                            ),
                           ),
-                          const SizedBox(height: 8),
+                          const SizedBox(height: 10),
                           Text(
                             'No pending requests',
-                            style: GoogleFonts.nunito(
-                              color: _muted,
-                              fontWeight: FontWeight.w600,
-                              fontSize: 13,
+                            style: AppText.body(
+                              size: 13,
+                              color: AppColors.muted,
                             ),
                           ),
                           const SizedBox(height: 2),
                           Text(
                             "You're all caught up.",
-                            style: GoogleFonts.nunito(
-                              color: _muted.withOpacity(0.7),
-                              fontSize: 11.5,
+                            style: AppText.body(
+                              size: 11.5,
+                              weight: FontWeight.w500,
+                              color: AppColors.muted.withOpacity(0.7),
                             ),
                           ),
                         ],
@@ -671,8 +904,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       separatorBuilder: (_, __) => const SizedBox(height: 10),
                       itemBuilder: (context, index) {
                         final app =
-                            _pendingApplications[index]
-                                as Map<String, dynamic>;
+                            _pendingApplications[index] as Map<String, dynamic>;
                         final leaveType = app['leave_type_name'] ?? 'Leave';
                         final days = app['days_applied']?.toString() ?? '0';
                         final start = formatIsoDate(
@@ -681,10 +913,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                         final end = formatIsoDate(app['end_date']?.toString());
                         final id = app['id'];
                         final dotColor =
-                            _accentColors[index % _accentColors.length];
+                            AppColors.accents[index % AppColors.accents.length];
 
                         return Material(
-                          color: Colors.white,
+                          color: AppColors.surface,
                           borderRadius: BorderRadius.circular(14),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(14),
@@ -694,10 +926,16 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                             child: Container(
                               padding: const EdgeInsets.all(14),
                               decoration: BoxDecoration(
+                                color: AppColors.surface,
                                 borderRadius: BorderRadius.circular(14),
-                                border: Border.all(
-                                  color: const Color(0xFFEDEFF4),
-                                ),
+                                border: Border.all(color: AppColors.hairline),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: AppColors.navy.withOpacity(0.04),
+                                    blurRadius: 10,
+                                    offset: const Offset(0, 3),
+                                  ),
+                                ],
                               ),
                               child: Row(
                                 children: [
@@ -717,19 +955,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       children: [
                                         Text(
                                           leaveType,
-                                          style: GoogleFonts.nunito(
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 14,
-                                            color: _navy,
+                                          style: AppText.body(
+                                            size: 14,
+                                            weight: FontWeight.w700,
                                           ),
                                         ),
                                         const SizedBox(height: 3),
                                         Text(
                                           '$start – $end · $days day(s)',
-                                          style: GoogleFonts.nunito(
-                                            fontSize: 12,
-                                            color: _muted,
-                                            fontWeight: FontWeight.w500,
+                                          style: AppText.body(
+                                            size: 12,
+                                            weight: FontWeight.w500,
+                                            color: AppColors.muted,
                                           ),
                                         ),
                                       ],
@@ -741,24 +978,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       vertical: 4,
                                     ),
                                     decoration: BoxDecoration(
-                                      color: const Color(
-                                        0xFFF5A623,
-                                      ).withOpacity(0.12),
+                                      color: AppColors.amber.withOpacity(0.14),
                                       borderRadius: BorderRadius.circular(20),
                                     ),
                                     child: Text(
                                       'Pending',
-                                      style: GoogleFonts.nunito(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w700,
-                                        color: const Color(0xFFB5750E),
+                                      style: AppText.body(
+                                        size: 10,
+                                        weight: FontWeight.w700,
+                                        color: const Color(0xFF8A5A16),
                                       ),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
-                                  Icon(
+                                  const Icon(
                                     Icons.picture_as_pdf_outlined,
-                                    color: _muted,
+                                    color: AppColors.muted,
                                     size: 18,
                                   ),
                                 ],
@@ -776,95 +1011,144 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     );
   }
 
-  Widget _buildPlaceholderTab(String label) {
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            Icons.construction_rounded,
-            color: _muted.withOpacity(0.4),
-            size: 32,
-          ),
-          const SizedBox(height: 10),
-          Text(
-            '$label — coming soon',
-            style: GoogleFonts.nunito(
-              color: _muted,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: _bg,
-      appBar: null,
-      bottomNavigationBar: BottomAppBar(
-        color: Colors.white,
-        elevation: 10,
-        shape: const CircularNotchedRectangle(),
-        notchMargin: 8,
-        child: SizedBox(
-          height: 62,
+    return WillPopScope(
+      onWillPop: () async {
+        // If a sub-page is open (e.g. Apply for Leave, or something
+        // pushed from within Profile/Monetize/Logs), let back close
+        // that first instead of leaving the app/tab.
+        final navigator = _bodyNavigatorKey.currentState;
+        if (navigator != null && navigator.canPop()) {
+          navigator.pop();
+          return false;
+        }
+        return true;
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.bg,
+        appBar: null,
+        bottomNavigationBar: Container(
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          height: 68,
+          decoration: BoxDecoration(
+            color: AppColors.surface,
+            borderRadius: BorderRadius.circular(24),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.navyDark.withOpacity(0.10),
+                blurRadius: 18,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
           child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _bottomNavItem(icon: Icons.home_rounded, label: 'Home', index: 0),
-              _bottomNavItem(
-                icon: Icons.payments_rounded,
-                label: 'Monetize',
-                index: 1,
+              Expanded(
+                child: _bottomNavItem(
+                  icon: Icons.home_rounded,
+                  label: 'Home',
+                  index: 0,
+                ),
               ),
-              const SizedBox(width: 48),
-              _bottomNavItem(
-                icon: Icons.person_outline_rounded,
-                label: 'Profile',
-                index: 2,
+              Expanded(
+                child: _bottomNavItem(
+                  icon: Icons.payments_outlined,
+                  label: 'Monetize',
+                  index: 1,
+                ),
               ),
-              _bottomNavItem(
-                icon: Icons.history_rounded,
-                label: 'Logs',
-                index: 3,
+              Expanded(child: _applyNavItem()),
+              Expanded(
+                child: _bottomNavItem(
+                  icon: Icons.history_rounded,
+                  label: 'History',
+                  index: 3,
+                ),
+              ),
+              Expanded(
+                child: _bottomNavItem(
+                  icon: Icons.person_outline_rounded,
+                  label: 'Profile',
+                  index: 2,
+                ),
               ),
             ],
           ),
         ),
+        // Nested Navigator scoped to just the tab content. Any
+        // Navigator.push(context, ...) called by a widget inside this
+        // subtree (ProfilePage, ApplyForLeaveMonetization, LeaveLogsPage,
+        // and their descendants) resolves to THIS Navigator, not the
+        // app's root one — so their sub-pages open here, on top of the
+        // tab content, while the bottomNavigationBar above (which
+        // belongs to the outer Scaffold) stays visible.
+        body: Navigator(
+          key: _bodyNavigatorKey,
+          onGenerateRoute: (settings) => MaterialPageRoute(
+            builder: (context) => IndexedStack(
+              index: _selectedIndex,
+              children: [
+                _buildHomeContent(),
+                ApplyForLeaveMonetization(isActive: _selectedIndex == 1),
+                ProfilePage(isActive: _selectedIndex == 2),
+                LeaveLogsPage(isActive: _selectedIndex == 3),
+              ],
+            ),
+          ),
+        ),
       ),
-      floatingActionButton: _selectedIndex == 0
-          ? Container(
+    );
+  }
+
+  /// Pops any sub-page open in the tab-content Navigator (e.g. Apply for
+  /// Leave) back to the IndexedStack. Without this, tapping a tab changes
+  /// _selectedIndex underneath a pushed page that's still covering it —
+  /// so nothing appears to happen until the user hits back manually.
+  void _popToTabRoot() {
+    final navigator = _bodyNavigatorKey.currentState;
+    if (navigator != null && navigator.canPop()) {
+      navigator.popUntil((route) => route.isFirst);
+    }
+  }
+
+  Widget _applyNavItem() {
+    return GestureDetector(
+      onTap: () {
+        _popToTabRoot();
+        _goToApplyLeave();
+      },
+      behavior: HitTestBehavior.opaque,
+      child: SizedBox(
+        height: 68,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 32,
+              height: 32,
               decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(
-                    color: _navy.withOpacity(0.35),
-                    blurRadius: 14,
-                    offset: const Offset(0, 6),
-                  ),
-                ],
+                color: AppColors.amber,
+                borderRadius: BorderRadius.circular(11),
               ),
-              child: FloatingActionButton(
-                backgroundColor: _navy,
-                onPressed: _goToApplyLeave,
-                shape: const CircleBorder(),
-                child: const Icon(Icons.add, color: Colors.white, size: 28),
+              alignment: Alignment.center,
+              child: const Icon(
+                Icons.add_rounded,
+                color: Colors.white,
+                size: 20,
               ),
-            )
-          : null,
-      floatingActionButtonLocation: FloatingActionButtonLocation.centerDocked,
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: [
-          _buildHomeContent(),
-          const ApplyForLeaveMonetization(),
-          ProfilePage(isActive: _selectedIndex == 2),
-          const LeaveLogsPage(),
-        ],
+            ),
+            const SizedBox(height: 3),
+            Text(
+              'Apply',
+              style: AppText.body(
+                size: 10,
+                weight: FontWeight.w800,
+                color: AppColors.amber,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -875,9 +1159,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     required int index,
   }) {
     final isSelected = _selectedIndex == index;
-    final color = isSelected ? _navy : _muted.withOpacity(0.75);
+    final color = isSelected
+        ? AppColors.navy
+        : AppColors.muted.withOpacity(0.7);
     return GestureDetector(
       onTap: () {
+        _popToTabRoot();
         final wasInactive = _selectedIndex != 0 && index == 0;
         setState(() => _selectedIndex = index);
         if (wasInactive) {
@@ -888,24 +1175,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         }
       },
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 180),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: BoxDecoration(
-          color: isSelected ? _navy.withOpacity(0.07) : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
-        ),
+      child: SizedBox(
+        height: 68,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: color, size: 22),
-            const SizedBox(height: 2),
+            Icon(icon, size: 22, color: color),
+            const SizedBox(height: 3),
             Text(
               label,
-              style: GoogleFonts.nunito(
-                fontSize: 10.5,
+              style: AppText.body(
+                size: 10,
+                weight: isSelected ? FontWeight.w800 : FontWeight.w600,
                 color: color,
-                fontWeight: isSelected ? FontWeight.w800 : FontWeight.w600,
               ),
             ),
           ],
