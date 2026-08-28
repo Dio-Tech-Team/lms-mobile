@@ -5,13 +5,17 @@ class LeaveTypeOption {
   final String name;
   final String? code;
   final double remainingBalance;
+  final String? grantType;
 
   const LeaveTypeOption({
     required this.id,
     required this.name,
     this.code,
     required this.remainingBalance,
+    this.grantType,
   });
+
+  bool get isEventManual => grantType == 'event_manual'; // ADD
 
   @override
   bool operator ==(Object other) => other is LeaveTypeOption && other.id == id;
@@ -79,6 +83,7 @@ class LeaveTypeOption {
           name: name,
           code: c["code"]?.toString() ?? c["leave_type_code"]?.toString(),
           remainingBalance: balance,
+          grantType: c["grant_type"]?.toString(),
         ),
       );
     }

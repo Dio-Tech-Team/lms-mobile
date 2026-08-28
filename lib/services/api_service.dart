@@ -23,7 +23,19 @@ class ApiService {
       final data = jsonDecode(response.body);
 
       if (response.statusCode == 200) {
-        return {"success": true, "token": data["token"], "user": data["user"]};
+        if (data["otp_required"] == true) {
+          return {
+            "success": true,
+            "otp_required": true,
+            "user_id": data["user_id"],
+          };
+        }
+        return {
+          "success": true,
+          "otp_required": false,
+          "token": data["token"],
+          "user": data["user"],
+        };
       } else if (response.statusCode == 401) {
         return {
           "success": false,
@@ -32,6 +44,95 @@ class ApiService {
       } else if (response.statusCode == 422) {
         final errors = data["errors"] as Map<String, dynamic>?;
         final firstError = errors?.values.first?.first ?? "Validation failed.";
+        return {"success": false, "message": firstError};
+      } else {
+        return {
+          "success": false,
+          "message": data["message"] ?? "Unexpected server error.",
+        };
+      }
+    } on TimeoutException {
+      return {
+        "success": false,
+        "message":
+            "Couldn't reach the server. Check your connection and try again.",
+      };
+    } catch (e) {
+      return {
+        "success": false,
+        "message": "Network error: Unable to connect to server.",
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> verifyOtp({
+    required int userId,
+    required String otp,
+  }) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/verify-otp'),
+            headers: {
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+            },
+            body: jsonEncode({"user_id": userId, "otp": otp}),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return {"success": true, "token": data["token"], "user": data["user"]};
+      } else if (response.statusCode == 422) {
+        final errors = data["errors"] as Map<String, dynamic>?;
+        final firstError = errors?.values.first?.first ?? "Invalid code.";
+        return {"success": false, "message": firstError};
+      } else {
+        return {
+          "success": false,
+          "message": data["message"] ?? "Unexpected server error.",
+        };
+      }
+    } on TimeoutException {
+      return {
+        "success": false,
+        "message":
+            "Couldn't reach the server. Check your connection and try again.",
+      };
+    } catch (e) {
+      return {
+        "success": false,
+        "message": "Network error: Unable to connect to server.",
+      };
+    }
+  }
+
+  static Future<Map<String, dynamic>> resendOtp({required int userId}) async {
+    try {
+      final response = await http
+          .post(
+            Uri.parse('$baseUrl/resend-otp'),
+            headers: {
+              "Content-Type": "application/json",
+              "Accept": "application/json",
+            },
+            body: jsonEncode({"user_id": userId}),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      final data = jsonDecode(response.body);
+
+      if (response.statusCode == 200) {
+        return {
+          "success": true,
+          "message": data["message"] ?? "A new code has been sent.",
+        };
+      } else if (response.statusCode == 422) {
+        final errors = data["errors"] as Map<String, dynamic>?;
+        final firstError =
+            errors?.values.first?.first ?? "Unable to resend code.";
         return {"success": false, "message": firstError};
       } else {
         return {

@@ -1,25 +1,31 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../services/api_service.dart';
-import 'otp_verification_page.dart';
 
-class LoginPage extends StatefulWidget {
-  const LoginPage({super.key});
+
+class OtpVerificationPage extends StatefulWidget {
+  final int userId;
+
+  const OtpVerificationPage({super.key, required this.userId});
 
   @override
-  State<LoginPage> createState() => _LoginPageState();
+  State<OtpVerificationPage> createState() => _OtpVerificationPageState();
 }
 
-class _LoginPageState extends State<LoginPage> {
+class _OtpVerificationPageState extends State<OtpVerificationPage> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
+  final _otpController = TextEditingController();
 
-  bool _isLoading = false;
-  bool _obscurePassword = true;
+  bool _isVerifying = false;
+  bool _isResending = false;
   String? _errorMessage;
+  String? _infoMessage;
+
+  int _resendCooldown = 0;
+  Timer? _cooldownTimer;
 
   static const Color _navyLight = Color(0xFF2D5491);
   static const Color _navy = Color(0xFF1B3B63);
@@ -27,51 +33,84 @@ class _LoginPageState extends State<LoginPage> {
   static const Color _fieldFill = Color(0xFFF2F4F7);
 
   @override
+  void initState() {
+    super.initState();
+    _startCooldown();
+  }
+
+  @override
   void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
+    _otpController.dispose();
+    _cooldownTimer?.cancel();
     super.dispose();
   }
 
-  Future<void> _handleLogin() async {
+  void _startCooldown() {
+    setState(() => _resendCooldown = 30);
+    _cooldownTimer?.cancel();
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (_resendCooldown <= 1) {
+        timer.cancel();
+        setState(() => _resendCooldown = 0);
+      } else {
+        setState(() => _resendCooldown--);
+      }
+    });
+  }
+
+  Future<void> _handleVerify() async {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
-      _isLoading = true;
+      _isVerifying = true;
       _errorMessage = null;
+      _infoMessage = null;
     });
 
-    final result = await ApiService.login(
-      _emailController.text.trim(),
-      _passwordController.text,
+    final result = await ApiService.verifyOtp(
+      userId: widget.userId,
+      otp: _otpController.text.trim(),
     );
 
     if (!mounted) return;
 
     if (result["success"] == true) {
-      if (result["otp_required"] == true) {
-        setState(() => _isLoading = false);
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => OtpVerificationPage(userId: result["user_id"]),
-          ),
-        );
-        return;
-      }
-
       Provider.of<AuthProvider>(
         context,
         listen: false,
       ).login(result["token"], result["user"]);
 
-      Navigator.pushReplacementNamed(context, '/home');
+      Navigator.pushNamedAndRemoveUntil(context, '/home', (route) => false);
     } else {
       setState(() {
-        _errorMessage = result["message"] ?? "Login failed. Please try again.";
-        _isLoading = false;
+        _errorMessage = result["message"] ?? "Verification failed.";
+        _isVerifying = false;
       });
     }
+  }
+
+  Future<void> _handleResend() async {
+    if (_resendCooldown > 0) return;
+
+    setState(() {
+      _isResending = true;
+      _errorMessage = null;
+      _infoMessage = null;
+    });
+
+    final result = await ApiService.resendOtp(userId: widget.userId);
+
+    if (!mounted) return;
+
+    setState(() {
+      _isResending = false;
+      if (result["success"] == true) {
+        _infoMessage = result["message"] ?? "A new code has been sent.";
+        _startCooldown();
+      } else {
+        _errorMessage = result["message"] ?? "Unable to resend code.";
+      }
+    });
   }
 
   @override
@@ -113,14 +152,14 @@ class _LoginPageState extends State<LoginPage> {
                             ),
                           ),
                           child: const Icon(
-                            Icons.event_available_rounded,
+                            Icons.mark_email_read_outlined,
                             color: Colors.white,
                             size: 32,
                           ),
                         ),
                         const SizedBox(height: 14),
                         Text(
-                          "LeaveSync",
+                          "Verify Your Email",
                           style: GoogleFonts.fraunces(
                             color: Colors.white,
                             fontSize: 22,
@@ -157,7 +196,7 @@ class _LoginPageState extends State<LoginPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Text(
-                        "Welcome Back",
+                        "Enter Code",
                         style: GoogleFonts.fraunces(
                           fontSize: 28,
                           fontWeight: FontWeight.w600,
@@ -166,7 +205,7 @@ class _LoginPageState extends State<LoginPage> {
                       ),
                       const SizedBox(height: 6),
                       Text(
-                        "Sign in to manage your leave applications.",
+                        "We sent a 6-digit code to your email. It expires in 10 minutes.",
                         style: GoogleFonts.nunito(
                           color: Colors.grey.shade600,
                           fontSize: 13.5,
@@ -196,48 +235,77 @@ class _LoginPageState extends State<LoginPage> {
                         const SizedBox(height: 16),
                       ],
 
-                      TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.text,
-                        style: GoogleFonts.nunito(color: _navyDark),
-                        decoration: _fieldDecoration(
-                          hint: "Username or Email",
-                          icon: Icons.mail_outline_rounded,
+                      if (_infoMessage != null) ...[
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: _navy.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(14),
+                            border: Border.all(color: _navy.withOpacity(0.3)),
+                          ),
+                          child: Text(
+                            _infoMessage!,
+                            style: GoogleFonts.nunito(
+                              color: _navy,
+                              fontSize: 13,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
                         ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return "Username or email is required.";
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
+                        const SizedBox(height: 16),
+                      ],
 
                       TextFormField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        style: GoogleFonts.nunito(color: _navyDark),
-                        decoration: _fieldDecoration(
-                          hint: "Password",
-                          icon: Icons.lock_outline_rounded,
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
-                              color: Colors.grey.shade500,
-                              size: 20,
+                        controller: _otpController,
+                        keyboardType: TextInputType.number,
+                        maxLength: 6,
+                        textAlign: TextAlign.center,
+                        style: GoogleFonts.nunito(
+                          color: _navyDark,
+                          fontSize: 20,
+                          letterSpacing: 8,
+                          fontWeight: FontWeight.w700,
+                        ),
+                        decoration: InputDecoration(
+                          counterText: "",
+                          hintText: "······",
+                          hintStyle: GoogleFonts.nunito(
+                            color: Colors.grey.shade400,
+                            fontSize: 20,
+                            letterSpacing: 8,
+                          ),
+                          filled: true,
+                          fillColor: _fieldFill,
+                          contentPadding: const EdgeInsets.symmetric(
+                            vertical: 16,
+                            horizontal: 20,
+                          ),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(30),
+                            borderSide: BorderSide.none,
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(30),
+                            borderSide: BorderSide.none,
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(30),
+                            borderSide: const BorderSide(
+                              color: _navy,
+                              width: 1.6,
                             ),
-                            onPressed: () {
-                              setState(
-                                () => _obscurePassword = !_obscurePassword,
-                              );
-                            },
+                          ),
+                          errorBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(30),
+                            borderSide: BorderSide(color: Colors.red.shade300),
                           ),
                         ),
                         validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return "Password is required.";
+                          if (value == null || value.trim().isEmpty) {
+                            return "Enter the code sent to your email.";
+                          }
+                          if (value.trim().length != 6) {
+                            return "Code must be 6 digits.";
                           }
                           return null;
                         },
@@ -247,7 +315,7 @@ class _LoginPageState extends State<LoginPage> {
                       SizedBox(
                         height: 54,
                         child: ElevatedButton(
-                          onPressed: _isLoading ? null : _handleLogin,
+                          onPressed: _isVerifying ? null : _handleVerify,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: _navy,
                             foregroundColor: Colors.white,
@@ -256,7 +324,7 @@ class _LoginPageState extends State<LoginPage> {
                               borderRadius: BorderRadius.circular(30),
                             ),
                           ),
-                          child: _isLoading
+                          child: _isVerifying
                               ? const SizedBox(
                                   height: 22,
                                   width: 22,
@@ -266,11 +334,39 @@ class _LoginPageState extends State<LoginPage> {
                                   ),
                                 )
                               : Text(
-                                  "Sign In",
+                                  "Verify",
                                   style: GoogleFonts.nunito(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w700,
                                     letterSpacing: 0.3,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+
+                      Center(
+                        child: TextButton(
+                          onPressed: (_resendCooldown > 0 || _isResending)
+                              ? null
+                              : _handleResend,
+                          child: _isResending
+                              ? SizedBox(
+                                  height: 16,
+                                  width: 16,
+                                  child: CircularProgressIndicator(
+                                    color: _navy,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : Text(
+                                  _resendCooldown > 0
+                                      ? "Resend code in ${_resendCooldown}s"
+                                      : "Didn't get a code? Resend",
+                                  style: GoogleFonts.nunito(
+                                    color: _navy,
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
                         ),
@@ -282,38 +378,6 @@ class _LoginPageState extends State<LoginPage> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  InputDecoration _fieldDecoration({
-    required String hint,
-    required IconData icon,
-    Widget? suffixIcon,
-  }) {
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: GoogleFonts.nunito(color: Colors.grey.shade400, fontSize: 14),
-      prefixIcon: Icon(icon, color: _navy, size: 20),
-      suffixIcon: suffixIcon,
-      filled: true,
-      fillColor: _fieldFill,
-      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(30),
-        borderSide: BorderSide.none,
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(30),
-        borderSide: BorderSide.none,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(30),
-        borderSide: const BorderSide(color: _navy, width: 1.6),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(30),
-        borderSide: BorderSide(color: Colors.red.shade300),
       ),
     );
   }

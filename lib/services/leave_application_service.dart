@@ -89,6 +89,9 @@ class LeaveApplicationService {
         };
       }
       return {
+       
+       
+       
         'success': false,
         'message': body['message'] ?? 'Failed to load leave applications (${response.statusCode}).',
       };

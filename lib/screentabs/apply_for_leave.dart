@@ -77,6 +77,20 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
         _endDate = picked;
       }
     });
+    _autoFillEndDateIfNeeded();
+  }
+
+  void _autoFillEndDateIfNeeded() {
+    if (_selectedLeaveType != null &&
+        _selectedLeaveType!.isEventManual &&
+        _startDate != null) {
+      final days = _selectedLeaveType!.remainingBalance;
+      if (days > 0) {
+        setState(() {
+          _endDate = _startDate!.add(Duration(days: days.toInt() - 1));
+        });
+      }
+    }
   }
 
   Future<void> _submit() async {
@@ -265,10 +279,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                           Icons.keyboard_arrow_down_rounded,
                           color: _muted,
                         ),
-                        style: GoogleFonts.nunito(
-                          color: _text,
-                          fontSize: 13.5,
-                        ),
+                        style: GoogleFonts.nunito(color: _text, fontSize: 13.5),
                         items: options
                             .map(
                               (opt) => DropdownMenuItem(
@@ -280,8 +291,10 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                               ),
                             )
                             .toList(),
-                        onChanged: (val) =>
-                            setState(() => _selectedLeaveType = val),
+                        onChanged: (val) {
+                          setState(() => _selectedLeaveType = val);
+                          _autoFillEndDateIfNeeded();
+                        },
                         validator: (val) =>
                             val == null ? 'Please select a leave type' : null,
                       ),
@@ -357,8 +370,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                         maxLines: 4,
                         style: GoogleFonts.nunito(fontSize: 13.5, color: _text),
                         decoration: _fieldDecoration(
-                          hint:
-                              'Briefly describe your reason for leave',
+                          hint: 'Briefly describe your reason for leave',
                         ),
                       ),
                     ),
