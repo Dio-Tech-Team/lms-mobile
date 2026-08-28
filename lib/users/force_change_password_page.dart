@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -24,10 +26,9 @@ class _ForceChangePasswordPageState extends State<ForceChangePasswordPage> {
   bool _obscureConfirm = true;
   String? _errorMessage;
 
-  static const Color _navyDark = Color(0xFF13224A);
   static const Color _navy = Color(0xFF1B3B63);
-  static const Color _text = Color(0xFF1E3A5F);
-  static const Color _muted = Color(0xFF8A97A8);
+  static const Color _navyDark = Color(0xFF0D1B3A);
+  static const Color _amber = Color(0xFFD98F32);
 
   @override
   void dispose() {
@@ -102,333 +103,381 @@ class _ForceChangePasswordPageState extends State<ForceChangePasswordPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: const Color(0xFFEEF0F5),
-      body: SizedBox.expand(
-        child: Column(
-          children: [
-            // Header
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.fromLTRB(20, 56, 20, 28),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [_navyDark, _navy],
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    width: 40,
-                    height: 40,
-                    decoration: BoxDecoration(
-                      color: Colors.white.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      Icons.lock_reset_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(height: 14),
-                  Text(
-                    'Change Your Password',
-                    style: GoogleFonts.fraunces(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    "For your security, you must set a new password before "
-                    "continuing. This won't be asked again.",
-                    style: GoogleFonts.nunito(
-                      color: Colors.white.withOpacity(0.7),
-                      fontSize: 12.5,
-                    ),
-                  ),
+      backgroundColor: _navyDark,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // ── Blurred municipal hall photo — same treatment as login/OTP ──
+          ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+            child: Image.asset(
+              'assets/images/echague.png',
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stack) => Container(color: _navy),
+            ),
+          ),
+
+          // ── Navy scrim ──
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  _navyDark.withOpacity(0.58),
+                  _navy.withOpacity(0.45),
+                  _navyDark.withOpacity(0.85),
                 ],
+                stops: const [0.0, 0.45, 1.0],
               ),
             ),
+          ),
 
-            // Form
-            Expanded(
-              child: SingleChildScrollView(
-                child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (_errorMessage != null) ...[
-                          Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.red.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: Colors.red.withOpacity(0.3),
+          // ── Content ──
+          SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(26, 20, 26, 28),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Seal — same treatment as login/OTP
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(18),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.10),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.25),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.lock_reset_rounded,
+                                color: Colors.white,
+                                size: 44,
                               ),
                             ),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  Icons.error_outline,
-                                  color: Colors.red.shade400,
-                                  size: 18,
+                          ),
+                          const SizedBox(height: 18),
+
+                          Text(
+                            "Change Your Password",
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.fraunces(
+                              color: Colors.white,
+                              fontSize: 28,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.2,
+                              shadows: [
+                                Shadow(
+                                  color: _navyDark.withOpacity(0.6),
+                                  blurRadius: 12,
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    _errorMessage!,
-                                    style: GoogleFonts.nunito(
-                                      color: Colors.red,
-                                      fontSize: 13,
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            "For your security, you must set a new password\nbefore continuing. This won't be asked again.",
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.nunito(
+                              color: Colors.white.withOpacity(0.75),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              height: 1.5,
+                            ),
+                          ),
+
+                          const SizedBox(height: 32),
+
+                          Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (_errorMessage != null) ...[
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 12,
                                     ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFDECEC),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: Colors.red.withOpacity(0.35),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Icon(
+                                          Icons.error_outline_rounded,
+                                          color: Colors.red.shade700,
+                                          size: 19,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            _errorMessage!,
+                                            style: GoogleFonts.nunito(
+                                              color: Colors.red.shade700,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 18),
+                                ],
+
+                                _PasswordField(
+                                  label: "Current Password",
+                                  hint: "Your current/default password",
+                                  icon: Icons.lock_outline_rounded,
+                                  controller: _currentPasswordController,
+                                  obscureText: _obscureCurrent,
+                                  onToggleObscure: () => setState(
+                                    () => _obscureCurrent = !_obscureCurrent,
+                                  ),
+                                  validator: (v) => (v == null || v.isEmpty)
+                                      ? 'Current password is required.'
+                                      : null,
+                                ),
+                                const SizedBox(height: 14),
+
+                                _PasswordField(
+                                  label: "New Password",
+                                  hint: "Enter a new password",
+                                  icon: Icons.vpn_key_rounded,
+                                  controller: _newPasswordController,
+                                  obscureText: _obscureNew,
+                                  onToggleObscure: () => setState(
+                                    () => _obscureNew = !_obscureNew,
+                                  ),
+                                  validator: _validateNewPassword,
+                                ),
+                                const SizedBox(height: 8),
+                                Padding(
+                                  padding: const EdgeInsets.only(left: 4),
+                                  child: Text(
+                                    '8+ characters, upper & lower case, a number, and a symbol.',
+                                    style: GoogleFonts.nunito(
+                                      color: Colors.white.withOpacity(0.6),
+                                      fontSize: 11.5,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 14),
+
+                                _PasswordField(
+                                  label: "Confirm New Password",
+                                  hint: "Re-enter new password",
+                                  icon: Icons.check_circle_outline_rounded,
+                                  controller: _confirmPasswordController,
+                                  obscureText: _obscureConfirm,
+                                  onToggleObscure: () => setState(
+                                    () => _obscureConfirm = !_obscureConfirm,
+                                  ),
+                                  validator: (v) => (v == null || v.isEmpty)
+                                      ? 'Please confirm your new password.'
+                                      : null,
+                                ),
+                                const SizedBox(height: 28),
+
+                                SizedBox(
+                                  height: 54,
+                                  child: ElevatedButton(
+                                    onPressed: _isLoading
+                                        ? null
+                                        : _handleSubmit,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _amber,
+                                      disabledBackgroundColor: _amber
+                                          .withOpacity(0.5),
+                                      foregroundColor: _navyDark,
+                                      elevation: 0,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(30),
+                                      ),
+                                    ),
+                                    child: _isLoading
+                                        ? const SizedBox(
+                                            height: 22,
+                                            width: 22,
+                                            child: CircularProgressIndicator(
+                                              color: _navyDark,
+                                              strokeWidth: 2.5,
+                                            ),
+                                          )
+                                        : Text(
+                                            "Change Password",
+                                            style: GoogleFonts.nunito(
+                                              fontSize: 16.5,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 0.3,
+                                            ),
+                                          ),
                                   ),
                                 ),
                               ],
                             ),
                           ),
-                          const SizedBox(height: 16),
+                          const SizedBox(height: 10),
                         ],
-
-                        _sectionCard(
-                          icon: Icons.lock_outline_rounded,
-                          label: 'Current Password',
-                          child: TextFormField(
-                            controller: _currentPasswordController,
-                            obscureText: _obscureCurrent,
-                            style: GoogleFonts.nunito(
-                              fontSize: 13.5,
-                              color: _text,
-                            ),
-                            decoration: _fieldDecoration(
-                              hint: 'Your current/default password',
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _obscureCurrent
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
-                                  color: Colors.grey.shade500,
-                                  size: 20,
-                                ),
-                                onPressed: () => setState(
-                                  () => _obscureCurrent = !_obscureCurrent,
-                                ),
-                              ),
-                            ),
-                            validator: (v) => (v == null || v.isEmpty)
-                                ? 'Current password is required.'
-                                : null,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        _sectionCard(
-                          icon: Icons.vpn_key_rounded,
-                          label: 'New Password',
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              TextFormField(
-                                controller: _newPasswordController,
-                                obscureText: _obscureNew,
-                                style: GoogleFonts.nunito(
-                                  fontSize: 13.5,
-                                  color: _text,
-                                ),
-                                decoration: _fieldDecoration(
-                                  hint: 'Enter a new password',
-                                  suffixIcon: IconButton(
-                                    icon: Icon(
-                                      _obscureNew
-                                          ? Icons.visibility_outlined
-                                          : Icons.visibility_off_outlined,
-                                      color: Colors.grey.shade500,
-                                      size: 20,
-                                    ),
-                                    onPressed: () => setState(
-                                      () => _obscureNew = !_obscureNew,
-                                    ),
-                                  ),
-                                ),
-                                validator: _validateNewPassword,
-                              ),
-                              const SizedBox(height: 10),
-                              Text(
-                                '8+ characters, upper & lower case, a number, and a symbol.',
-                                style: GoogleFonts.nunito(
-                                  color: _muted,
-                                  fontSize: 11.5,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-
-                        _sectionCard(
-                          icon: Icons.check_circle_outline_rounded,
-                          label: 'Confirm New Password',
-                          child: TextFormField(
-                            controller: _confirmPasswordController,
-                            obscureText: _obscureConfirm,
-                            style: GoogleFonts.nunito(
-                              fontSize: 13.5,
-                              color: _text,
-                            ),
-                            decoration: _fieldDecoration(
-                              hint: 'Re-enter new password',
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _obscureConfirm
-                                      ? Icons.visibility_outlined
-                                      : Icons.visibility_off_outlined,
-                                  color: Colors.grey.shade500,
-                                  size: 20,
-                                ),
-                                onPressed: () => setState(
-                                  () => _obscureConfirm = !_obscureConfirm,
-                                ),
-                              ),
-                            ),
-                            validator: (v) => (v == null || v.isEmpty)
-                                ? 'Please confirm your new password.'
-                                : null,
-                          ),
-                        ),
-                        const SizedBox(height: 28),
-
-                        SizedBox(
-                          width: double.infinity,
-                          height: 52,
-                          child: ElevatedButton(
-                            onPressed: _isLoading ? null : _handleSubmit,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: _navy,
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            child: _isLoading
-                                ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                      color: Colors.white,
-                                      strokeWidth: 2.5,
-                                    ),
-                                  )
-                                : Text(
-                                    'Change Password',
-                                    style: GoogleFonts.nunito(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
+                      ),
                     ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sectionCard({
-    required IconData icon,
-    required String label,
-    required Widget child,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// White field with label above the input, matching login page's
+/// _LabeledField exactly, plus a show/hide password toggle.
+class _PasswordField extends StatefulWidget {
+  final String label;
+  final String hint;
+  final IconData icon;
+  final TextEditingController controller;
+  final bool obscureText;
+  final VoidCallback onToggleObscure;
+  final String? Function(String?)? validator;
+
+  const _PasswordField({
+    required this.label,
+    required this.hint,
+    required this.icon,
+    required this.controller,
+    required this.obscureText,
+    required this.onToggleObscure,
+    this.validator,
+  });
+
+  @override
+  State<_PasswordField> createState() => _PasswordFieldState();
+}
+
+class _PasswordFieldState extends State<_PasswordField> {
+  static const Color _navy = Color(0xFF1B3B63);
+  static const Color _navyDark = Color(0xFF0D1B3A);
+  static const Color _amber = Color(0xFFD98F32);
+
+  final FocusNode _focusNode = FocusNode();
+  bool _focused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (_focused != _focusNode.hasFocus) {
+        setState(() => _focused = _focusNode.hasFocus);
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _focused ? _amber : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(18, 10, 8, 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: _navy.withOpacity(0.08),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                alignment: Alignment.center,
-                child: Icon(icon, size: 15, color: _navy),
-              ),
-              const SizedBox(width: 8),
+              Icon(widget.icon, size: 15, color: _navy),
+              const SizedBox(width: 6),
               Text(
-                label,
+                widget.label,
                 style: GoogleFonts.nunito(
+                  fontSize: 12.5,
                   fontWeight: FontWeight.w700,
-                  fontSize: 13.5,
-                  color: _text,
+                  color: _navy,
+                  letterSpacing: 0.2,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          child,
+          TextFormField(
+            controller: widget.controller,
+            focusNode: _focusNode,
+            obscureText: widget.obscureText,
+            validator: widget.validator,
+            style: GoogleFonts.nunito(
+              color: _navyDark,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+            decoration: InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              errorBorder: InputBorder.none,
+              focusedErrorBorder: InputBorder.none,
+              contentPadding: const EdgeInsets.only(top: 2, bottom: 8),
+              hintText: widget.hint,
+              hintStyle: GoogleFonts.nunito(
+                color: Colors.grey.shade400,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+              suffixIcon: IconButton(
+                splashRadius: 20,
+                icon: Icon(
+                  widget.obscureText
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                  color: Colors.grey.shade500,
+                  size: 20,
+                ),
+                onPressed: widget.onToggleObscure,
+              ),
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 40,
+                minHeight: 36,
+              ),
+              errorStyle: GoogleFonts.nunito(
+                color: Colors.red.shade700,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
         ],
-      ),
-    );
-  }
-
-  InputDecoration _fieldDecoration({required String hint, Widget? suffixIcon}) {
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: GoogleFonts.nunito(
-        color: Colors.grey.shade400,
-        fontSize: 13.5,
-      ),
-      suffixIcon: suffixIcon,
-      filled: true,
-      fillColor: const Color(0xFFF5F6FA),
-      contentPadding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide.none,
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide.none,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: const BorderSide(color: _navy, width: 1.4),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(10),
-        borderSide: BorderSide(color: Colors.red.shade300),
       ),
     );
   }

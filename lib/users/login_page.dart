@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -21,10 +23,9 @@ class _LoginPageState extends State<LoginPage> {
   bool _obscurePassword = true;
   String? _errorMessage;
 
-  static const Color _navyLight = Color(0xFF2D5491);
   static const Color _navy = Color(0xFF1B3B63);
   static const Color _navyDark = Color(0xFF0D1B3A);
-  static const Color _fieldFill = Color(0xFFF2F4F7);
+  static const Color _amber = Color(0xFFD98F32);
 
   @override
   void dispose() {
@@ -77,264 +78,386 @@ class _LoginPageState extends State<LoginPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ClipPath(
-              clipper: _BottomCurveClipper(),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 150),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [_navyLight, _navy, _navyDark],
-                    stops: [0.0, 0.5, 1.0],
-                  ),
-                ),
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 36),
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 64,
-                          height: 64,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.4),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: const Icon(
-                            Icons.event_available_rounded,
-                            color: Colors.white,
-                            size: 32,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Text(
-                          "LeaveSync",
-                          style: GoogleFonts.fraunces(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+      backgroundColor: _navyDark,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // ── Blurred municipal hall photo ───────────────────
+          ImageFiltered(
+            // imageFilter: ui.ImageFilter.blur(sigmaX: 6, sigmaY: 6),
+            imageFilter: ui.ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+            child: Image.asset(
+              'assets/images/echague.png',
+              fit: BoxFit.cover,
+              // Falls back to plain navy if the photo can't be loaded.
+              errorBuilder: (context, error, stack) => Container(color: _navy),
+            ),
+          ),
+
+          // ── Navy scrim: keeps text readable over the photo ──
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  _navyDark.withOpacity(0.58),
+                  _navy.withOpacity(0.45),
+                  _navyDark.withOpacity(0.85),
+                ],
+                stops: const [0.0, 0.45, 1.0],
               ),
             ),
+          ),
 
-            Transform.translate(
-              offset: const Offset(0, -95),
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 22),
-                padding: const EdgeInsets.fromLTRB(24, 32, 24, 28),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _navyDark.withOpacity(0.15),
-                      blurRadius: 24,
-                      offset: const Offset(0, 12),
+          // ── Content ────────────────────────────────────────
+          SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
                     ),
-                  ],
-                ),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        "Welcome Back",
-                        style: GoogleFonts.fraunces(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w600,
-                          color: _navyDark,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        "Sign in to manage your leave applications.",
-                        style: GoogleFonts.nunito(
-                          color: Colors.grey.shade600,
-                          fontSize: 13.5,
-                        ),
-                      ),
-                      const SizedBox(height: 26),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(26, 0, 26, 28),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const SizedBox(height: 34),
 
-                      if (_errorMessage != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: Colors.red.withOpacity(0.3),
+                          // Seal
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(10),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.10),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.25),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: SizedBox(
+                                height: 96,
+                                width: 96,
+                                child: Image.asset(
+                                  'assets/images/leaevsync.png',
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (context, error, stack) =>
+                                      const Icon(
+                                        Icons.account_balance_rounded,
+                                        color: Colors.white,
+                                        size: 46,
+                                      ),
+                                ),
+                              ),
                             ),
                           ),
-                          child: Text(
-                            _errorMessage!,
-                            style: GoogleFonts.nunito(
-                              color: Colors.red,
-                              fontSize: 13,
-                            ),
+                          const SizedBox(height: 18),
+
+                          Text(
+                            "LeaveSync",
                             textAlign: TextAlign.center,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-
-                      TextFormField(
-                        controller: _emailController,
-                        keyboardType: TextInputType.text,
-                        style: GoogleFonts.nunito(color: _navyDark),
-                        decoration: _fieldDecoration(
-                          hint: "Username or Email",
-                          icon: Icons.mail_outline_rounded,
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return "Username or email is required.";
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      TextFormField(
-                        controller: _passwordController,
-                        obscureText: _obscurePassword,
-                        style: GoogleFonts.nunito(color: _navyDark),
-                        decoration: _fieldDecoration(
-                          hint: "Password",
-                          icon: Icons.lock_outline_rounded,
-                          suffixIcon: IconButton(
-                            icon: Icon(
-                              _obscurePassword
-                                  ? Icons.visibility_outlined
-                                  : Icons.visibility_off_outlined,
-                              color: Colors.grey.shade500,
-                              size: 20,
-                            ),
-                            onPressed: () {
-                              setState(
-                                () => _obscurePassword = !_obscurePassword,
-                              );
-                            },
-                          ),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.isEmpty) {
-                            return "Password is required.";
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 28),
-
-                      SizedBox(
-                        height: 54,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _handleLogin,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _navy,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30),
+                            style: GoogleFonts.fraunces(
+                              color: Colors.white,
+                              fontSize: 32,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.2,
+                              shadows: [
+                                Shadow(
+                                  color: _navyDark.withOpacity(0.6),
+                                  blurRadius: 12,
+                                ),
+                              ],
                             ),
                           ),
-                          child: _isLoading
-                              ? const SizedBox(
-                                  height: 22,
-                                  width: 22,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2.5,
+                          const SizedBox(height: 4),
+                          Text(
+                            "LGU Echague, Isabela",
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.nunito(
+                              color: Colors.white.withOpacity(0.75),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+
+                          const SizedBox(height: 38),
+
+                          Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (_errorMessage != null) ...[
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 14,
+                                      vertical: 12,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFFDECEC),
+                                      borderRadius: BorderRadius.circular(14),
+                                      border: Border.all(
+                                        color: Colors.red.withOpacity(0.35),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Icon(
+                                          Icons.error_outline_rounded,
+                                          color: Colors.red.shade700,
+                                          size: 19,
+                                        ),
+                                        const SizedBox(width: 10),
+                                        Expanded(
+                                          child: Text(
+                                            _errorMessage!,
+                                            style: GoogleFonts.nunito(
+                                              color: Colors.red.shade700,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                   ),
-                                )
-                              : Text(
-                                  "Sign In",
-                                  style: GoogleFonts.nunito(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.3,
+                                  const SizedBox(height: 18),
+                                ],
+
+                                _LabeledField(
+                                  label: "Username or Email",
+                                  controller: _emailController,
+                                  hint: "e.g. juandelacruz",
+                                  icon: Icons.person_outline_rounded,
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return "Username or email is required.";
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 14),
+
+                                _LabeledField(
+                                  label: "Password",
+                                  controller: _passwordController,
+                                  hint: "Enter your password",
+                                  icon: Icons.lock_outline_rounded,
+                                  obscureText: _obscurePassword,
+                                  suffix: IconButton(
+                                    splashRadius: 20,
+                                    icon: Icon(
+                                      _obscurePassword
+                                          ? Icons.visibility_outlined
+                                          : Icons.visibility_off_outlined,
+                                      color: Colors.grey.shade500,
+                                      size: 20,
+                                    ),
+                                    onPressed: () {
+                                      setState(
+                                        () => _obscurePassword =
+                                            !_obscurePassword,
+                                      );
+                                    },
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return "Password is required.";
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 28),
+
+                                SizedBox(
+                                  height: 54,
+                                  child: ElevatedButton(
+                                    onPressed: _isLoading ? null : _handleLogin,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _amber,
+                                      disabledBackgroundColor: _amber
+                                          .withOpacity(0.5),
+                                      foregroundColor: _navyDark,
+                                      elevation: 0,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(30),
+                                      ),
+                                    ),
+                                    child: _isLoading
+                                        ? const SizedBox(
+                                            height: 22,
+                                            width: 22,
+                                            child: CircularProgressIndicator(
+                                              color: _navyDark,
+                                              strokeWidth: 2.5,
+                                            ),
+                                          )
+                                        : Text(
+                                            "Log In",
+                                            style: GoogleFonts.nunito(
+                                              fontSize: 16.5,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 0.3,
+                                            ),
+                                          ),
                                   ),
                                 ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
+                              ],
+                            ),
+                          ),
 
-  InputDecoration _fieldDecoration({
-    required String hint,
-    required IconData icon,
-    Widget? suffixIcon,
-  }) {
-    return InputDecoration(
-      hintText: hint,
-      hintStyle: GoogleFonts.nunito(color: Colors.grey.shade400, fontSize: 14),
-      prefixIcon: Icon(icon, color: _navy, size: 20),
-      suffixIcon: suffixIcon,
-      filled: true,
-      fillColor: _fieldFill,
-      contentPadding: const EdgeInsets.symmetric(vertical: 16, horizontal: 20),
-      border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(30),
-        borderSide: BorderSide.none,
-      ),
-      enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(30),
-        borderSide: BorderSide.none,
-      ),
-      focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(30),
-        borderSide: const BorderSide(color: _navy, width: 1.6),
-      ),
-      errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(30),
-        borderSide: BorderSide(color: Colors.red.shade300),
+                          const SizedBox(height: 26),
+
+                          Text(
+                            "Accounts are issued by the HR Office.\nContact HR if you can't sign in.",
+                            textAlign: TextAlign.center,
+                            style: GoogleFonts.nunito(
+                              color: Colors.white.withOpacity(0.6),
+                              fontSize: 12,
+                              height: 1.5,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _BottomCurveClipper extends CustomClipper<Path> {
+/// White field with the label laid out as a real widget above the input,
+/// so it can't be clipped the way a floating label is.
+class _LabeledField extends StatefulWidget {
+  final String label;
+  final String hint;
+  final IconData icon;
+  final TextEditingController controller;
+  final bool obscureText;
+  final Widget? suffix;
+  final String? Function(String?)? validator;
+
+  const _LabeledField({
+    required this.label,
+    required this.hint,
+    required this.icon,
+    required this.controller,
+    this.obscureText = false,
+    this.suffix,
+    this.validator,
+  });
+
   @override
-  Path getClip(Size size) {
-    final path = Path();
-    path.lineTo(0, size.height - 80);
-    path.quadraticBezierTo(
-      size.width / 2,
-      size.height,
-      size.width,
-      size.height - 80,
-    );
-    path.lineTo(size.width, 0);
-    path.close();
-    return path;
+  State<_LabeledField> createState() => _LabeledFieldState();
+}
+
+class _LabeledFieldState extends State<_LabeledField> {
+  static const Color _navy = Color(0xFF1B3B63);
+  static const Color _navyDark = Color(0xFF0D1B3A);
+  static const Color _amber = Color(0xFFD98F32);
+
+  final FocusNode _focusNode = FocusNode();
+  bool _focused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (_focused != _focusNode.hasFocus) {
+        setState(() => _focused = _focusNode.hasFocus);
+      }
+    });
   }
 
   @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _focused ? _amber : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(18, 10, 8, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(widget.icon, size: 15, color: _navy),
+              const SizedBox(width: 6),
+              Text(
+                widget.label,
+                style: GoogleFonts.nunito(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: _navy,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
+          ),
+          TextFormField(
+            controller: widget.controller,
+            focusNode: _focusNode,
+            obscureText: widget.obscureText,
+            validator: widget.validator,
+            style: GoogleFonts.nunito(
+              color: _navyDark,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+            decoration: InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              errorBorder: InputBorder.none,
+              focusedErrorBorder: InputBorder.none,
+              contentPadding: const EdgeInsets.only(top: 2, bottom: 8),
+              hintText: widget.hint,
+              hintStyle: GoogleFonts.nunito(
+                color: Colors.grey.shade400,
+                fontSize: 14,
+                fontWeight: FontWeight.w500,
+              ),
+              suffixIcon: widget.suffix,
+              suffixIconConstraints: const BoxConstraints(
+                minWidth: 40,
+                minHeight: 36,
+              ),
+              errorStyle: GoogleFonts.nunito(
+                color: Colors.red.shade700,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

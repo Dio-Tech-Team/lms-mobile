@@ -1,10 +1,11 @@
 import 'dart:async';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../services/api_service.dart';
-
 
 class OtpVerificationPage extends StatefulWidget {
   final int userId;
@@ -27,10 +28,9 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
   int _resendCooldown = 0;
   Timer? _cooldownTimer;
 
-  static const Color _navyLight = Color(0xFF2D5491);
   static const Color _navy = Color(0xFF1B3B63);
   static const Color _navyDark = Color(0xFF0D1B3A);
-  static const Color _fieldFill = Color(0xFFF2F4F7);
+  static const Color _amber = Color(0xFFD98F32);
 
   @override
   void initState() {
@@ -116,289 +116,392 @@ class _OtpVerificationPageState extends State<OtpVerificationPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            ClipPath(
-              clipper: _BottomCurveClipper(),
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 150),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [_navyLight, _navy, _navyDark],
-                    stops: [0.0, 0.5, 1.0],
-                  ),
-                ),
-                child: SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: const EdgeInsets.only(top: 36),
-                    child: Column(
-                      children: [
-                        Container(
-                          width: 64,
-                          height: 64,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.15),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withOpacity(0.4),
-                              width: 1.5,
-                            ),
-                          ),
-                          child: const Icon(
-                            Icons.mark_email_read_outlined,
-                            color: Colors.white,
-                            size: 32,
-                          ),
-                        ),
-                        const SizedBox(height: 14),
-                        Text(
-                          "Verify Your Email",
-                          style: GoogleFonts.fraunces(
-                            color: Colors.white,
-                            fontSize: 22,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 0.3,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+      backgroundColor: _navyDark,
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          // ── Blurred municipal hall photo — same treatment as login ──
+          ImageFiltered(
+            imageFilter: ui.ImageFilter.blur(sigmaX: 3, sigmaY: 3),
+            child: Image.asset(
+              'assets/images/echague.png',
+              fit: BoxFit.cover,
+              errorBuilder: (context, error, stack) => Container(color: _navy),
+            ),
+          ),
+
+          // ── Navy scrim ──
+          Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [
+                  _navyDark.withOpacity(0.58),
+                  _navy.withOpacity(0.45),
+                  _navyDark.withOpacity(0.85),
+                ],
+                stops: const [0.0, 0.45, 1.0],
               ),
             ),
+          ),
 
-            Transform.translate(
-              offset: const Offset(0, -95),
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 22),
-                padding: const EdgeInsets.fromLTRB(24, 32, 24, 28),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(28),
-                  boxShadow: [
-                    BoxShadow(
-                      color: _navyDark.withOpacity(0.15),
-                      blurRadius: 24,
-                      offset: const Offset(0, 12),
+          // ── Content ──
+          SafeArea(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
                     ),
-                  ],
-                ),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        "Enter Code",
-                        style: GoogleFonts.fraunces(
-                          fontSize: 28,
-                          fontWeight: FontWeight.w600,
-                          color: _navyDark,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        "We sent a 6-digit code to your email. It expires in 10 minutes.",
-                        style: GoogleFonts.nunito(
-                          color: Colors.grey.shade600,
-                          fontSize: 13.5,
-                        ),
-                      ),
-                      const SizedBox(height: 26),
-
-                      if (_errorMessage != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.red.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(
-                              color: Colors.red.withOpacity(0.3),
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(26, 0, 26, 28),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Back button, top-left
+                          Align(
+                            alignment: Alignment.topLeft,
+                            child: IconButton(
+                              onPressed: () => Navigator.pop(context),
+                              icon: const Icon(
+                                Icons.arrow_back_ios_new_rounded,
+                                color: Colors.white,
+                                size: 18,
+                              ),
                             ),
                           ),
-                          child: Text(
-                            _errorMessage!,
-                            style: GoogleFonts.nunito(
-                              color: Colors.red,
-                              fontSize: 13,
+                          const SizedBox(height: 8),
+
+                          // Seal — same shape/treatment as login's logo mark
+                          Center(
+                            child: Container(
+                              padding: const EdgeInsets.all(18),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withOpacity(0.10),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: Colors.white.withOpacity(0.25),
+                                  width: 1.5,
+                                ),
+                              ),
+                              child: const Icon(
+                                Icons.mark_email_read_outlined,
+                                color: Colors.white,
+                                size: 44,
+                              ),
                             ),
+                          ),
+                          const SizedBox(height: 18),
+
+                          Text(
+                            "Verify Your Email",
                             textAlign: TextAlign.center,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-
-                      if (_infoMessage != null) ...[
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: _navy.withOpacity(0.08),
-                            borderRadius: BorderRadius.circular(14),
-                            border: Border.all(color: _navy.withOpacity(0.3)),
-                          ),
-                          child: Text(
-                            _infoMessage!,
-                            style: GoogleFonts.nunito(
-                              color: _navy,
-                              fontSize: 13,
+                            style: GoogleFonts.fraunces(
+                              color: Colors.white,
+                              fontSize: 30,
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.2,
+                              shadows: [
+                                Shadow(
+                                  color: _navyDark.withOpacity(0.6),
+                                  blurRadius: 12,
+                                ),
+                              ],
                             ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            "Enter the 6-digit code sent to your email.\nIt expires in 10 minutes.",
                             textAlign: TextAlign.center,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                      ],
-
-                      TextFormField(
-                        controller: _otpController,
-                        keyboardType: TextInputType.number,
-                        maxLength: 6,
-                        textAlign: TextAlign.center,
-                        style: GoogleFonts.nunito(
-                          color: _navyDark,
-                          fontSize: 20,
-                          letterSpacing: 8,
-                          fontWeight: FontWeight.w700,
-                        ),
-                        decoration: InputDecoration(
-                          counterText: "",
-                          hintText: "······",
-                          hintStyle: GoogleFonts.nunito(
-                            color: Colors.grey.shade400,
-                            fontSize: 20,
-                            letterSpacing: 8,
-                          ),
-                          filled: true,
-                          fillColor: _fieldFill,
-                          contentPadding: const EdgeInsets.symmetric(
-                            vertical: 16,
-                            horizontal: 20,
-                          ),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(30),
-                            borderSide: BorderSide.none,
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(30),
-                            borderSide: BorderSide.none,
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(30),
-                            borderSide: const BorderSide(
-                              color: _navy,
-                              width: 1.6,
+                            style: GoogleFonts.nunito(
+                              color: Colors.white.withOpacity(0.75),
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              height: 1.5,
                             ),
                           ),
-                          errorBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(30),
-                            borderSide: BorderSide(color: Colors.red.shade300),
-                          ),
-                        ),
-                        validator: (value) {
-                          if (value == null || value.trim().isEmpty) {
-                            return "Enter the code sent to your email.";
-                          }
-                          if (value.trim().length != 6) {
-                            return "Code must be 6 digits.";
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 28),
 
-                      SizedBox(
-                        height: 54,
-                        child: ElevatedButton(
-                          onPressed: _isVerifying ? null : _handleVerify,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: _navy,
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(30),
-                            ),
-                          ),
-                          child: _isVerifying
-                              ? const SizedBox(
-                                  height: 22,
-                                  width: 22,
-                                  child: CircularProgressIndicator(
-                                    color: Colors.white,
-                                    strokeWidth: 2.5,
+                          const SizedBox(height: 34),
+
+                          Form(
+                            key: _formKey,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (_errorMessage != null) ...[
+                                  _StatusBanner(
+                                    message: _errorMessage!,
+                                    icon: Icons.error_outline_rounded,
+                                    color: Colors.red.shade700,
+                                    background: const Color(0xFFFDECEC),
+                                    borderColor: Colors.red.withOpacity(0.35),
                                   ),
-                                )
-                              : Text(
-                                  "Verify",
-                                  style: GoogleFonts.nunito(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.3,
+                                  const SizedBox(height: 18),
+                                ],
+
+                                if (_infoMessage != null) ...[
+                                  _StatusBanner(
+                                    message: _infoMessage!,
+                                    icon: Icons.check_circle_outline_rounded,
+                                    color: _navy,
+                                    background: Colors.white,
+                                    borderColor: _navy.withOpacity(0.25),
+                                  ),
+                                  const SizedBox(height: 18),
+                                ],
+
+                                _OtpCodeField(
+                                  controller: _otpController,
+                                  validator: (value) {
+                                    if (value == null || value.trim().isEmpty) {
+                                      return "Enter the code sent to your email.";
+                                    }
+                                    if (value.trim().length != 6) {
+                                      return "Code must be 6 digits.";
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                const SizedBox(height: 28),
+
+                                SizedBox(
+                                  height: 54,
+                                  child: ElevatedButton(
+                                    onPressed: _isVerifying
+                                        ? null
+                                        : _handleVerify,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: _amber,
+                                      disabledBackgroundColor: _amber
+                                          .withOpacity(0.5),
+                                      foregroundColor: _navyDark,
+                                      elevation: 0,
+                                      shape: RoundedRectangleBorder(
+                                        borderRadius: BorderRadius.circular(30),
+                                      ),
+                                    ),
+                                    child: _isVerifying
+                                        ? const SizedBox(
+                                            height: 22,
+                                            width: 22,
+                                            child: CircularProgressIndicator(
+                                              color: _navyDark,
+                                              strokeWidth: 2.5,
+                                            ),
+                                          )
+                                        : Text(
+                                            "Verify",
+                                            style: GoogleFonts.nunito(
+                                              fontSize: 16.5,
+                                              fontWeight: FontWeight.w800,
+                                              letterSpacing: 0.3,
+                                            ),
+                                          ),
                                   ),
                                 ),
-                        ),
-                      ),
-                      const SizedBox(height: 18),
+                              ],
+                            ),
+                          ),
 
-                      Center(
-                        child: TextButton(
-                          onPressed: (_resendCooldown > 0 || _isResending)
-                              ? null
-                              : _handleResend,
-                          child: _isResending
-                              ? SizedBox(
-                                  height: 16,
-                                  width: 16,
-                                  child: CircularProgressIndicator(
-                                    color: _navy,
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : Text(
-                                  _resendCooldown > 0
-                                      ? "Resend code in ${_resendCooldown}s"
-                                      : "Didn't get a code? Resend",
-                                  style: GoogleFonts.nunito(
-                                    color: _navy,
-                                    fontSize: 13.5,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                        ),
+                          const SizedBox(height: 22),
+
+                          Center(
+                            child: TextButton(
+                              onPressed: (_resendCooldown > 0 || _isResending)
+                                  ? null
+                                  : _handleResend,
+                              child: _isResending
+                                  ? const SizedBox(
+                                      height: 16,
+                                      width: 16,
+                                      child: CircularProgressIndicator(
+                                        color: Colors.white,
+                                        strokeWidth: 2,
+                                      ),
+                                    )
+                                  : Text(
+                                      _resendCooldown > 0
+                                          ? "Resend code in ${_resendCooldown}s"
+                                          : "Didn't get a code? Resend",
+                                      style: GoogleFonts.nunito(
+                                        color: _resendCooldown > 0
+                                            ? Colors.white.withOpacity(0.55)
+                                            : _amber,
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
                       ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
+                );
+              },
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 }
 
-class _BottomCurveClipper extends CustomClipper<Path> {
+/// White banner matching login page's inline error-message treatment.
+class _StatusBanner extends StatelessWidget {
+  final String message;
+  final IconData icon;
+  final Color color;
+  final Color background;
+  final Color borderColor;
+
+  const _StatusBanner({
+    required this.message,
+    required this.icon,
+    required this.color,
+    required this.background,
+    required this.borderColor,
+  });
+
   @override
-  Path getClip(Size size) {
-    final path = Path();
-    path.lineTo(0, size.height - 80);
-    path.quadraticBezierTo(
-      size.width / 2,
-      size.height,
-      size.width,
-      size.height - 80,
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: borderColor),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: color, size: 19),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message,
+              style: GoogleFonts.nunito(
+                color: color,
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
-    path.lineTo(size.width, 0);
-    path.close();
-    return path;
+  }
+}
+
+/// White code field styled like login's _LabeledField — label above,
+/// amber focus border — sized for a centered, spaced-out 6-digit code.
+class _OtpCodeField extends StatefulWidget {
+  final TextEditingController controller;
+  final String? Function(String?)? validator;
+
+  const _OtpCodeField({required this.controller, this.validator});
+
+  @override
+  State<_OtpCodeField> createState() => _OtpCodeFieldState();
+}
+
+class _OtpCodeFieldState extends State<_OtpCodeField> {
+  static const Color _navy = Color(0xFF1B3B63);
+  static const Color _navyDark = Color(0xFF0D1B3A);
+  static const Color _amber = Color(0xFFD98F32);
+
+  final FocusNode _focusNode = FocusNode();
+  bool _focused = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _focusNode.addListener(() {
+      if (_focused != _focusNode.hasFocus) {
+        setState(() => _focused = _focusNode.hasFocus);
+      }
+    });
   }
 
   @override
-  bool shouldReclip(CustomClipper<Path> oldClipper) => false;
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: _focused ? _amber : Colors.transparent,
+          width: 2,
+        ),
+      ),
+      padding: const EdgeInsets.fromLTRB(18, 10, 18, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.pin_outlined, size: 15, color: _navy),
+              const SizedBox(width: 6),
+              Text(
+                "Verification Code",
+                style: GoogleFonts.nunito(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                  color: _navy,
+                  letterSpacing: 0.2,
+                ),
+              ),
+            ],
+          ),
+          TextFormField(
+            controller: widget.controller,
+            focusNode: _focusNode,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            textAlign: TextAlign.center,
+            validator: widget.validator,
+            style: GoogleFonts.nunito(
+              color: _navyDark,
+              fontSize: 20,
+              letterSpacing: 8,
+              fontWeight: FontWeight.w700,
+            ),
+            decoration: InputDecoration(
+              isDense: true,
+              counterText: "",
+              border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
+              errorBorder: InputBorder.none,
+              focusedErrorBorder: InputBorder.none,
+              contentPadding: const EdgeInsets.only(top: 2, bottom: 8),
+              hintText: "······",
+              hintStyle: GoogleFonts.nunito(
+                color: Colors.grey.shade400,
+                fontSize: 20,
+                letterSpacing: 8,
+              ),
+              errorStyle: GoogleFonts.nunito(
+                color: Colors.red.shade700,
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
