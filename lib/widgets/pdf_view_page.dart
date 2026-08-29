@@ -33,12 +33,12 @@ class _PdfViewOnlyPageState extends State<PdfViewOnlyPage> {
       body: PdfPreview(
         build: (format) => _doc,
         dynamicLayout: false,
-        allowPrinting: false,
-        allowSharing: false,
+        allowPrinting: true,
+        allowSharing: true,
         canChangeOrientation: false,
         canChangePageFormat: false,
         canDebug: false,
-        useActions: false,
+        useActions: true,
         loadingWidget: const Center(
           child: CircularProgressIndicator(color: Color(0xFF13224A)),
         ),
