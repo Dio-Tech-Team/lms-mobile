@@ -40,8 +40,6 @@ class LeaveTypeOption {
 
   static List<LeaveTypeOption> listFromJson(List<dynamic>? raw) {
     final types = raw ?? [];
-    debugPrint("DEBUG LeaveTypeOption received types: $types");
-
     final options = <LeaveTypeOption>[];
 
     for (int i = 0; i < types.length; i++) {
