@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:printing/printing.dart';
 import '../providers/auth_providers.dart';
 import '../services/leave_credit_service.dart';
 import '../services/leave_application_service.dart';
@@ -12,6 +11,8 @@ import '../screentabs/leave_monetization.dart';
 import '../screentabs/history_logs.dart';
 import '../utils/employee_app_utils.dart';
 import '../utils/app_theme.dart';
+import 'dart:typed_data';
+import '../widgets/pdf_view_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -31,6 +32,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   List<dynamic> _pendingApplications = [];
   List<dynamic> _approvedApplications = [];
   bool _isLoadingPending = true;
+
+  /// Id of the application currently being cancelled, or null. Doubles as
+  /// the double-submit guard and as the per-tile spinner flag.
+  int? _cancellingId;
 
   Timer? _refreshTimer;
   static const Duration _networkTimeout = Duration(seconds: 30);
@@ -186,7 +191,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _loadPendingApplications({bool silent = false}) async {
-    debugPrint('PENDING CALLED:\n${StackTrace.current}');
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final token = auth.token;
 
@@ -250,6 +254,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     showDialog(
       context: context,
       barrierDismissible: false,
+      useRootNavigator: true,
       builder: (_) =>
           const Center(child: CircularProgressIndicator(color: AppColors.navy)),
     );
@@ -261,7 +266,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       ).timeout(_networkTimeout);
 
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.of(context, rootNavigator: true).pop();
 
       if (result['success'] != true) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -270,17 +275,98 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         return;
       }
 
-      final bytes = result['bytes'];
-      await Printing.layoutPdf(
-        onLayout: (format) async => bytes,
-        name: 'leave-application-$applicationId.pdf',
+      final rawBytes = result['bytes'];
+      final Uint8List bytes = rawBytes is Uint8List
+          ? rawBytes
+          : Uint8List.fromList(List<int>.from(rawBytes as List));
+      if (!mounted) return;
+      // _bodyNavigatorKey.currentState?.push(
+      Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              PdfViewOnlyPage(bytes: bytes, title: 'Leave Application'),
+        ),
       );
     } catch (_) {
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.of(context, rootNavigator: true).pop();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Request timed out. Please try again.')),
       );
+    }
+  }
+
+  /// Withdraws a still-pending application. Pending applications never
+  /// deducted credits, so there is nothing to restore — the backend just
+  /// flips the status and writes an activity log entry.
+  Future<void> _cancelApplication(int applicationId) async {
+    if (_cancellingId != null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Cancel this request?', style: AppText.display(size: 17)),
+        content: Text(
+          'This cannot be undone. You can file a new application afterwards.',
+          style: AppText.body(size: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              'Keep it',
+              style: AppText.body(
+                size: 13,
+                weight: FontWeight.w600,
+                color: AppColors.muted,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              'Cancel request',
+              style: AppText.body(
+                size: 13,
+                weight: FontWeight.w700,
+                color: AppColors.red,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final token = auth.token;
+    if (token == null) return;
+
+    setState(() => _cancellingId = applicationId);
+
+    try {
+      final result = await LeaveApplicationService.cancelApplication(
+        applicationId: applicationId,
+        token: token,
+      ).timeout(_networkTimeout);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(result['message']?.toString() ?? 'Done.')),
+      );
+
+      if (result['success'] == true) {
+        await _loadPendingApplications();
+        await _loadCredits(silent: true);
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Request timed out. Please try again.')),
+      );
+    } finally {
+      if (mounted) setState(() => _cancellingId = null);
     }
   }
 
@@ -990,12 +1076,78 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                                       ),
                                     ),
                                   ),
-                                  const SizedBox(width: 8),
-                                  const Icon(
-                                    Icons.picture_as_pdf_outlined,
-                                    color: AppColors.muted,
-                                    size: 18,
-                                  ),
+                                  const SizedBox(width: 4),
+                                  if (_cancellingId == id)
+                                    const SizedBox(
+                                      width: 32,
+                                      height: 32,
+                                      child: Padding(
+                                        padding: EdgeInsets.all(8),
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppColors.navy,
+                                        ),
+                                      ),
+                                    )
+                                  else
+                                    PopupMenuButton<String>(
+                                      icon: const Icon(
+                                        Icons.more_vert_rounded,
+                                        color: AppColors.muted,
+                                        size: 18,
+                                      ),
+                                      padding: EdgeInsets.zero,
+                                      splashRadius: 18,
+                                      tooltip: 'Options',
+                                      onSelected: (value) {
+                                        if (id == null) return;
+                                        if (value == 'pdf') {
+                                          _viewPendingPdf(id as int);
+                                        } else if (value == 'cancel') {
+                                          _cancelApplication(id as int);
+                                        }
+                                      },
+                                      itemBuilder: (_) => [
+                                        PopupMenuItem(
+                                          value: 'pdf',
+                                          child: Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.picture_as_pdf_outlined,
+                                                size: 17,
+                                                color: AppColors.muted,
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Text(
+                                                'View leave form',
+                                                style: AppText.body(size: 13),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'cancel',
+                                          child: Row(
+                                            children: [
+                                              const Icon(
+                                                Icons.cancel_outlined,
+                                                size: 17,
+                                                color: AppColors.red,
+                                              ),
+                                              const SizedBox(width: 10),
+                                              Text(
+                                                'Cancel request',
+                                                style: AppText.body(
+                                                  size: 13,
+                                                  weight: FontWeight.w600,
+                                                  color: AppColors.red,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
                                 ],
                               ),
                             ),
