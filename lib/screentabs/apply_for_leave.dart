@@ -27,6 +27,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
   bool _isSubmitting = false;
   String? _errorMessage;
 
+  static const Duration _networkTimeout = Duration(seconds: 30);
   static const Color _navy = Color(0xFF1B3B63);
   static const Color _text = Color(0xFF1E3A5F);
   static const Color _muted = Color(0xFF8A97A8);
@@ -94,6 +95,9 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
   }
 
   Future<void> _submit() async {
+    // Guard, not just a disabled button: the button only disables after
+    // setState rebuilds, which leaves a window for a fast double-tap.
+    if (_isSubmitting) return;
     if (!_formKey.currentState!.validate()) return;
 
     if (_selectedLeaveType == null) {
@@ -160,30 +164,41 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
       return;
     }
 
-    final result = await LeaveApplicationService.apply(
-      leaveConfigurationId: selected.id,
-      startDate: _startDate!,
-      endDate: _endDate!,
-      daysApplied: days,
-      token: token,
-      reason: _reasonController.text.trim().isEmpty
-          ? null
-          : _reasonController.text.trim(),
-    );
+    try {
+      final result = await LeaveApplicationService.apply(
+        leaveConfigurationId: selected.id,
+        startDate: _startDate!,
+        endDate: _endDate!,
+        daysApplied: days,
+        token: token,
+        reason: _reasonController.text.trim().isEmpty
+            ? null
+            : _reasonController.text.trim(),
+      ).timeout(_networkTimeout);
 
-    if (!mounted) return;
+      if (!mounted) return;
 
-    setState(() => _isSubmitting = false);
+      if (result["success"] == true) {
+        // Pop before clearing the flag — the page is going away anyway,
+        // and setState after pop would fire on a defunct State.
+        Navigator.pop(context, {
+          'success': true,
+          'leaveConfigurationId': selected.id,
+          'daysApplied': days,
+        });
+        return;
+      }
 
-    if (result["success"] == true) {
-      Navigator.pop(context, {
-        'success': true,
-        'leaveConfigurationId': selected.id,
-        'daysApplied': days,
-      });
-    } else {
       setState(() {
+        _isSubmitting = false;
         _errorMessage = result["message"] ?? 'Failed to submit leave request.';
+      });
+    } catch (e) {
+      debugPrint('APPLY LEAVE FAILED: $e');
+      if (!mounted) return;
+      setState(() {
+        _isSubmitting = false;
+        _errorMessage = 'The request timed out. Please try again.';
       });
     }
   }

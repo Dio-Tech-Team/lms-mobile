@@ -127,4 +127,44 @@ class LeaveMonetizationService {
       };
     }
   }
+
+  static Future<Map<String, dynamic>> cancelRequest({
+    required String token,
+    required int monetizationId,
+  }) async {
+    try {
+      final res = await http
+          .post(
+            Uri.parse('$baseUrl/leave-monetizations/$monetizationId/cancel'),
+            headers: {
+              'Accept': 'application/json',
+              'Authorization': 'Bearer $token',
+            },
+          )
+          .timeout(_timeout);
+
+      final decoded = res.body.isNotEmpty
+          ? jsonDecode(res.body)
+          : <String, dynamic>{};
+
+      if (res.statusCode == 200) {
+        return {
+          'success': true,
+          'message': decoded['message'] ?? 'Request cancelled.',
+        };
+      }
+
+      return {
+        'success': false,
+        'message':
+            decoded['message'] ??
+            'Failed to cancel request (${res.statusCode}).',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Request timed out. Please try again.',
+      };
+    }
+  }
 }

@@ -389,10 +389,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
               'Leave application submitted! It is pending for approval.',
+              style: AppText.body(size: 13, color: Colors.white),
             ),
+            backgroundColor: AppColors.green,
           ),
         );
       }

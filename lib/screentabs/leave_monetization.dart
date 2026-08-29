@@ -36,7 +36,13 @@ class _ApplyForLeaveMonetizationsState
 
   List<Map<String, dynamic>> _eligibleConfigs = [];
   List<dynamic> _credits = [];
+
+  /// Pending only. Settled requests live in Leave History alongside settled
+  /// leave applications, matching how the rest of the app splits them.
+  List<dynamic> _pendingRequests = [];
+
   int? _selectedConfigId;
+  int? _cancellingId;
 
   @override
   void initState() {
@@ -44,10 +50,21 @@ class _ApplyForLeaveMonetizationsState
     if (widget.isActive) _loadData();
   }
 
+  // @override
+  // void didUpdateWidget(covariant ApplyForLeaveMonetization oldWidget) {
+  //   super.didUpdateWidget(oldWidget);
+  //   if (widget.isActive && !oldWidget.isActive) {
+  //     // Balances may have changed while the user was on another tab.
+  //     _loadData(silent: _hasLoaded);
+  //   }
+  // }
   @override
   void didUpdateWidget(covariant ApplyForLeaveMonetization oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.isActive && !oldWidget.isActive) {
+      // A stale "submitted successfully" from twenty minutes ago reads as
+      // if it just happened.
+      _successMessage = null;
       // Balances may have changed while the user was on another tab.
       _loadData(silent: _hasLoaded);
     }
@@ -86,10 +103,15 @@ class _ApplyForLeaveMonetizationsState
           token: token,
         ).timeout(_networkTimeout),
         LeaveCreditService.getCredits(token).timeout(_networkTimeout),
+        LeaveMonetizationService.getMyRequests(
+          token: token,
+          status: 'pending',
+        ).timeout(_networkTimeout),
       ]).timeout(_networkTimeout + const Duration(seconds: 2));
 
       final configResult = results[0];
       final creditResult = results[1];
+      final pendingResult = results[2];
 
       if (configResult['success'] != true) {
         if (!mounted) return;
@@ -119,10 +141,17 @@ class _ApplyForLeaveMonetizationsState
         }
       }
 
+      // The pending list failing is not worth blocking the form for — the
+      // employee can still file even if we can't show what's outstanding.
+      final pending = pendingResult['success'] == true
+          ? List<dynamic>.from(pendingResult['data'] ?? [])
+          : <dynamic>[];
+
       if (!mounted) return;
       setState(() {
         _eligibleConfigs = eligible;
         _credits = credits;
+        _pendingRequests = pending;
         // Keep the user's current selection if it's still valid, so a
         // background refresh doesn't reset a form they're filling in.
         final stillValid = eligible.any((c) => c['id'] == _selectedConfigId);
@@ -205,9 +234,9 @@ class _ApplyForLeaveMonetizationsState
         // This screen is a tab inside an IndexedStack, not a pushed route,
         // so there is nothing to pop. Reset the form and show the result
         // in place instead, then refresh balances to reflect the request.
+        _formKey.currentState?.reset();
         _daysController.clear();
         _reasonController.clear();
-        _formKey.currentState?.reset();
         setState(() {
           _isSubmitting = false;
           _successMessage =
@@ -227,6 +256,73 @@ class _ApplyForLeaveMonetizationsState
       if (!mounted) return;
       setState(() => _isSubmitting = false);
       _showSnack('The request timed out. Please try again.', isError: true);
+    }
+  }
+
+  Future<void> _cancelRequest(int monetizationId) async {
+    if (_cancellingId != null) return;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Cancel this request?', style: AppText.display(size: 17)),
+        content: Text(
+          'This cannot be undone. You can file a new request afterwards.',
+          style: AppText.body(size: 13, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text(
+              'Keep it',
+              style: AppText.body(
+                size: 13,
+                weight: FontWeight.w600,
+                color: AppColors.muted,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: Text(
+              'Cancel request',
+              style: AppText.body(
+                size: 13,
+                weight: FontWeight.w700,
+                color: AppColors.red,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final token = auth.token;
+    if (token == null) return;
+
+    setState(() => _cancellingId = monetizationId);
+
+    try {
+      final result = await LeaveMonetizationService.cancelRequest(
+        token: token,
+        monetizationId: monetizationId,
+      ).timeout(_networkTimeout);
+
+      if (!mounted) return;
+      _showSnack(
+        result['message']?.toString() ?? 'Done.',
+        isError: result['success'] != true,
+      );
+
+      if (result['success'] == true) await _loadData(silent: true);
+    } catch (_) {
+      if (!mounted) return;
+      _showSnack('Request timed out. Please try again.', isError: true);
+    } finally {
+      if (mounted) setState(() => _cancellingId = null);
     }
   }
 
@@ -380,6 +476,156 @@ class _ApplyForLeaveMonetizationsState
     );
   }
 
+  // ---------------------------------------------------------------------
+  // Pending requests
+  // ---------------------------------------------------------------------
+
+  String _fmtDays(dynamic raw) {
+    final v = double.tryParse(raw?.toString() ?? '') ?? 0;
+    return v % 1 == 0 ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+  }
+
+  String _fmtDate(dynamic raw) {
+    final s = raw?.toString() ?? '';
+    if (s.length < 10) return '—';
+    return s.substring(0, 10);
+  }
+
+  /// Sits above the form: checking whether HR has acted is the reason to
+  /// open this tab repeatedly; filing a new request is occasional.
+  Widget _buildPendingSection() {
+    if (_pendingRequests.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 3,
+              height: 15,
+              decoration: BoxDecoration(
+                color: AppColors.gold,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text('Awaiting Review', style: AppText.eyebrow(size: 11.5)),
+          ],
+        ),
+        const SizedBox(height: 12),
+        ...List.generate(_pendingRequests.length, (i) {
+          final req = _pendingRequests[i] as Map<String, dynamic>;
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: i == _pendingRequests.length - 1 ? 0 : 10,
+            ),
+            child: _pendingTile(req),
+          );
+        }),
+        const SizedBox(height: 10),
+        Text(
+          'Approved and rejected requests appear in Leave History.',
+          style: AppText.body(
+            size: 11.5,
+            weight: FontWeight.w500,
+            color: AppColors.muted,
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+
+  Widget _pendingTile(Map<String, dynamic> req) {
+    final leaveType = req['leave_type_name']?.toString() ?? 'Leave';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.schedule_rounded, size: 16, color: AppColors.amber),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  leaveType,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body(
+                    size: 14,
+                    weight: FontWeight.w800,
+                    color: AppColors.navyDark,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '${_fmtDays(req['days_monetized'])} day(s) · '
+                  'filed ${_fmtDate(req['applied_at'])}',
+                  style: AppText.body(
+                    size: 12,
+                    weight: FontWeight.w500,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: AppColors.amber.withOpacity(0.14),
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Text(
+              'Pending',
+              style: AppText.body(
+                size: 10,
+                weight: FontWeight.w700,
+                color: const Color(0xFF8A5A16),
+              ),
+            ),
+          ),
+          const SizedBox(width: 4),
+          if (_cancellingId == req['id'])
+            const SizedBox(
+              width: 32,
+              height: 32,
+              child: Padding(
+                padding: EdgeInsets.all(8),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: AppColors.navy,
+                ),
+              ),
+            )
+          else
+            IconButton(
+              onPressed: req['id'] == null
+                  ? null
+                  : () => _cancelRequest(req['id'] as int),
+              icon: const Icon(Icons.cancel_outlined),
+              color: AppColors.red,
+              iconSize: 18,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+              splashRadius: 18,
+              tooltip: 'Cancel request',
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildForm() {
     final remaining = _selectedRemainingBalance;
     final daysText = _daysController.text.trim();
@@ -395,6 +641,8 @@ class _ApplyForLeaveMonetizationsState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             if (_successMessage != null) _buildSuccessBanner(),
+
+            _buildPendingSection(),
 
             _sectionCard(
               icon: Icons.event_note_rounded,

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../services/leave_application_service.dart';
+import '../services/leave_monetization_service.dart';
 import '../widgets/pdf_view_page.dart';
 import '../utils/employee_app_utils.dart';
 import '../utils/app_theme.dart';
@@ -19,7 +20,12 @@ class LeaveLogsPage extends StatefulWidget {
 
 class _LeaveLogsPageState extends State<LeaveLogsPage>
     with WidgetsBindingObserver {
+  /// Holds both leave applications and monetization requests. Each entry
+  /// carries a '_kind' key added during the merge, since the two have
+  /// different shapes — an application has a date range and a PDF, a
+  /// monetization has neither.
   List<Map<String, dynamic>> _leaveLogs = [];
+
   bool _isLoading = true;
   String? _errorMessage;
 
@@ -29,6 +35,9 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   Timer? _refreshTimer;
   static const Duration _networkTimeout = Duration(seconds: 30);
   static const Duration _refreshInterval = Duration(seconds: 60);
+
+  static const String _kindApplication = 'application';
+  static const String _kindMonetization = 'monetization';
 
   @override
   void initState() {
@@ -104,7 +113,9 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
     try {
       // Rejected is fetched alongside approved and cancelled — without it an
       // employee whose request was denied sees nothing at all, and never
-      // learns the reason HR recorded.
+      // learns the reason HR recorded. Monetization requests are fetched
+      // the same three ways: to the employee they are settled requests too,
+      // and looking for them anywhere else would be guesswork.
       final results = await Future.wait([
         LeaveApplicationService.getMyApplications(
           token: token,
@@ -118,13 +129,33 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
           token: token,
           status: 'cancelled',
         ).timeout(_networkTimeout),
+        LeaveMonetizationService.getMyRequests(
+          token: token,
+          status: 'approved',
+        ).timeout(_networkTimeout),
+        LeaveMonetizationService.getMyRequests(
+          token: token,
+          status: 'rejected',
+        ).timeout(_networkTimeout),
+        LeaveMonetizationService.getMyRequests(
+          token: token,
+          status: 'cancelled',
+        ).timeout(_networkTimeout),
       ]).timeout(_networkTimeout + const Duration(seconds: 2));
 
-      final List<Map<String, dynamic>> logs = [
-        for (final result in results)
-          if (result['success'] == true)
-            ...List<Map<String, dynamic>>.from(result['data'] ?? []),
-      ];
+      final List<Map<String, dynamic>> logs = [];
+
+      for (var i = 0; i < results.length; i++) {
+        final result = results[i];
+        if (result['success'] != true) continue;
+
+        // First three calls are applications, last three monetizations.
+        final kind = i < 3 ? _kindApplication : _kindMonetization;
+
+        for (final row in List<dynamic>.from(result['data'] ?? [])) {
+          logs.add({...Map<String, dynamic>.from(row), '_kind': kind});
+        }
+      }
 
       logs.sort((a, b) {
         final da =
@@ -259,6 +290,13 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
     return '$sm ${s.day}, ${s.year} – $em ${e.day}, ${e.year}';
   }
 
+  /// 'Sep 2, 2026' for a single timestamp.
+  String _singleDate(String? raw) {
+    final d = DateTime.tryParse(raw ?? '');
+    if (d == null) return '—';
+    return '${_monthAbbr[d.month - 1]} ${d.day}, ${d.year}';
+  }
+
   // ---------------------------------------------------------------------
   // Build
   // ---------------------------------------------------------------------
@@ -312,7 +350,9 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
       itemCount: logs.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, i) => _buildLeaveLogTile(logs[i]),
+      itemBuilder: (context, i) => logs[i]['_kind'] == _kindMonetization
+          ? _buildMonetizationTile(logs[i])
+          : _buildLeaveLogTile(logs[i]),
     );
   }
 
@@ -323,6 +363,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   Widget _buildHeader() {
     return const AppHeader(title: 'Leave History');
   }
+
   // ---------------------------------------------------------------------
   // Filter
   // ---------------------------------------------------------------------
@@ -464,7 +505,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   }
 
   // ---------------------------------------------------------------------
-  // Tile
+  // Tiles
   // ---------------------------------------------------------------------
 
   Color _accentFor(String status) {
@@ -498,6 +539,57 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
       default:
         return Icons.remove_circle_rounded;
     }
+  }
+
+  Widget _statusBadge(String status, Color accent) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: accent.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        _labelFor(status),
+        style: AppText.body(size: 10.5, weight: FontWeight.w800, color: accent),
+      ),
+    );
+  }
+
+  /// The list mixes two kinds of request. Without a marker, "3 days" on a
+  /// leave application and "20 requested · 15 approved" on a monetization
+  /// read as the same kind of record.
+  Widget _kindBadge() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color: AppColors.navy.withOpacity(0.07),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        'MONETIZATION',
+        style: AppText.eyebrow(size: 8.5, color: AppColors.navy),
+      ),
+    );
+  }
+
+  Widget _reasonPanel(String reason) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: AppColors.bg,
+        borderRadius: BorderRadius.circular(9),
+      ),
+      child: Text(
+        reason,
+        style: AppText.body(
+          size: 11.5,
+          weight: FontWeight.w500,
+          color: AppColors.navyDark,
+          height: 1.4,
+        ),
+      ),
+    );
   }
 
   /// Plain Column inside a plain Container. No stretch, no IntrinsicHeight,
@@ -542,24 +634,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
                   ),
                 ),
                 const SizedBox(width: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 3,
-                  ),
-                  decoration: BoxDecoration(
-                    color: accent.withOpacity(0.10),
-                    borderRadius: BorderRadius.circular(20),
-                  ),
-                  child: Text(
-                    _labelFor(status),
-                    style: AppText.body(
-                      size: 10.5,
-                      weight: FontWeight.w800,
-                      color: accent,
-                    ),
-                  ),
-                ),
+                _statusBadge(status, accent),
               ],
             ),
             const SizedBox(height: 10),
@@ -595,23 +670,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
             // employee can ever see it.
             if (isRejected && reason != null && reason.trim().isNotEmpty) ...[
               const SizedBox(height: 10),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: AppColors.bg,
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: Text(
-                  reason,
-                  style: AppText.body(
-                    size: 11.5,
-                    weight: FontWeight.w500,
-                    color: AppColors.navyDark,
-                    height: 1.4,
-                  ),
-                ),
-              ),
+              _reasonPanel(reason),
             ],
             if (isApproved) ...[
               const SizedBox(height: 10),
@@ -636,6 +695,119 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// No date range and no PDF — a monetization is a payout against a
+  /// balance, not time away — so this cannot reuse the application tile.
+  Widget _buildMonetizationTile(Map<String, dynamic> item) {
+    final status = (item['status'] ?? '').toString().toLowerCase();
+    final accent = _accentFor(status);
+    final leaveType = item['leave_type_name']?.toString() ?? 'Leave';
+    final reason = item['rejection_reason']?.toString();
+
+    final requested = double.tryParse(item['days_monetized']?.toString() ?? '');
+    final approved = item['approved_days'] == null
+        ? null
+        : double.tryParse(item['approved_days'].toString());
+
+    // The one outcome the employee cannot work out from a single number.
+    final isPartial =
+        status == 'approved' &&
+        approved != null &&
+        requested != null &&
+        approved < requested;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(_iconFor(status), size: 16, color: accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  leaveType,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body(
+                    size: 14.5,
+                    weight: FontWeight.w800,
+                    color: AppColors.navyDark,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _statusBadge(status, accent),
+            ],
+          ),
+          const SizedBox(height: 6),
+          _kindBadge(),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  _singleDate(item['applied_at']?.toString()),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body(
+                    size: 12.5,
+                    weight: FontWeight.w500,
+                    color: AppColors.navyDark,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                isPartial
+                    ? '${_fmtDays(requested!)} requested · '
+                          '${_fmtDays(approved!)} approved'
+                    : _formatDays(approved ?? requested),
+                style: AppText.body(
+                  size: 11.5,
+                  weight: FontWeight.w700,
+                  color: isPartial ? AppColors.navyDark : AppColors.muted,
+                ),
+              ),
+            ],
+          ),
+          if (isPartial) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.amber.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Text(
+                'HR approved part of this request. The remaining '
+                '${_fmtDays(requested! - approved!)} day(s) stay in your balance.',
+                style: AppText.body(
+                  size: 11.5,
+                  weight: FontWeight.w500,
+                  color: const Color(0xFF8A5A16),
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+          if (status == 'rejected' &&
+              reason != null &&
+              reason.trim().isNotEmpty) ...[
+            const SizedBox(height: 10),
+            _reasonPanel(reason),
+          ],
+        ],
       ),
     );
   }
