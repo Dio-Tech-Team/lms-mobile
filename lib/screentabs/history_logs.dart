@@ -22,7 +22,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   bool _isLoading = true;
   String? _errorMessage;
 
-  /// 'all' | 'approved' | 'cancelled'
+  /// 'all' | 'approved' | 'rejected' | 'cancelled'
   String _filter = 'all';
 
   Timer? _refreshTimer;
@@ -101,6 +101,9 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
     }
 
     try {
+      // Rejected is fetched alongside approved and cancelled — without it an
+      // employee whose request was denied sees nothing at all, and never
+      // learns the reason HR recorded.
       final results = await Future.wait([
         LeaveApplicationService.getMyApplications(
           token: token,
@@ -108,18 +111,18 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
         ).timeout(_networkTimeout),
         LeaveApplicationService.getMyApplications(
           token: token,
+          status: 'rejected',
+        ).timeout(_networkTimeout),
+        LeaveApplicationService.getMyApplications(
+          token: token,
           status: 'cancelled',
         ).timeout(_networkTimeout),
       ]).timeout(_networkTimeout + const Duration(seconds: 2));
 
-      final approvedResult = results[0];
-      final cancelledResult = results[1];
-
       final List<Map<String, dynamic>> logs = [
-        if (approvedResult['success'] == true)
-          ...List<Map<String, dynamic>>.from(approvedResult['data'] ?? []),
-        if (cancelledResult['success'] == true)
-          ...List<Map<String, dynamic>>.from(cancelledResult['data'] ?? []),
+        for (final result in results)
+          if (result['success'] == true)
+            ...List<Map<String, dynamic>>.from(result['data'] ?? []),
       ];
 
       logs.sort((a, b) {
@@ -158,6 +161,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
     showDialog(
       context: context,
       barrierDismissible: false,
+      useRootNavigator: true,
       builder: (_) =>
           const Center(child: CircularProgressIndicator(color: AppColors.navy)),
     );
@@ -171,7 +175,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
       ).timeout(_networkTimeout);
 
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.of(context, rootNavigator: true).pop();
 
       if (result['success'] != true) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -185,8 +189,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
           ? rawBytes
           : Uint8List.fromList(List<int>.from(rawBytes as List));
       if (!mounted) return;
-      Navigator.push(
-        context,
+      Navigator.of(context, rootNavigator: true).push(
         MaterialPageRoute(
           builder: (_) =>
               PdfViewOnlyPage(bytes: bytes, title: 'Leave Application'),
@@ -194,34 +197,11 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
       );
     } catch (_) {
       if (!mounted) return;
-      Navigator.pop(context);
+      Navigator.of(context, rootNavigator: true).pop();
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Request timed out. Please try again.')),
       );
     }
-  }
-
-  int get _approvedCount => _leaveLogs
-      .where((l) => (l['status'] ?? '').toString().toLowerCase() == 'approved')
-      .length;
-  int get _cancelledCount => _leaveLogs
-      .where((l) => (l['status'] ?? '').toString().toLowerCase() == 'cancelled')
-      .length;
-
-  /// Total approved days this year — the one number an employee actually
-  /// wants off this screen, and the reason the header now exists.
-  double get _daysTakenThisYear {
-    final year = DateTime.now().year;
-    double total = 0;
-    for (final log in _leaveLogs) {
-      if ((log['status'] ?? '').toString().toLowerCase() != 'approved') {
-        continue;
-      }
-      final start = DateTime.tryParse(log['start_date']?.toString() ?? '');
-      if (start == null || start.year != year) continue;
-      total += double.tryParse(log['days_applied']?.toString() ?? '') ?? 0;
-    }
-    return total;
   }
 
   List<Map<String, dynamic>> get _visibleLogs {
@@ -278,91 +258,67 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
     return '$sm ${s.day}, ${s.year} – $em ${e.day}, ${e.year}';
   }
 
-  /// Groups visible logs by the month they were applied in, preserving the
-  /// newest-first order already established by the sort in _loadLogs().
-  List<MapEntry<String, List<Map<String, dynamic>>>> _groupedLogs() {
-    final groups = <String, List<Map<String, dynamic>>>{};
-    for (final log in _visibleLogs) {
-      final applied = DateTime.tryParse(log['applied_at']?.toString() ?? '');
-      final key = applied == null
-          ? 'Earlier'
-          : '${_monthAbbr[applied.month - 1]} ${applied.year}';
-      groups.putIfAbsent(key, () => []).add(log);
-    }
-    return groups.entries.toList();
-  }
+  // ---------------------------------------------------------------------
+  // Build
+  // ---------------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
+    final logs = _visibleLogs;
+
     return Container(
       color: AppColors.bg,
-      child: RefreshIndicator(
-        onRefresh: () => _loadLogs(),
-        color: AppColors.navy,
-        child: ListView(
-          padding: EdgeInsets.zero,
-          physics: const AlwaysScrollableScrollPhysics(),
-          children: [
-            _buildHeader(),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 28),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (!_isLoading && _errorMessage == null) ...[
-                    _buildSegmentedFilter(),
-                    const SizedBox(height: 20),
-                  ],
-                  if (_isLoading)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 60),
-                      child: Center(
-                        child: CircularProgressIndicator(color: AppColors.navy),
-                      ),
-                    )
-                  else if (_errorMessage != null)
-                    _buildErrorState()
-                  else if (_visibleLogs.isEmpty)
-                    _buildEmptyState()
-                  else
-                    ..._buildGroupedList(),
-                ],
-              ),
+      child: Column(
+        children: [
+          _buildHeader(),
+          _buildFilterRow(),
+          Expanded(
+            child: RefreshIndicator(
+              onRefresh: () => _loadLogs(),
+              color: AppColors.navy,
+              child: _buildBody(logs),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
 
-  List<Widget> _buildGroupedList() {
-    final widgets = <Widget>[];
-    final groups = _groupedLogs();
-
-    for (int g = 0; g < groups.length; g++) {
-      final entry = groups[g];
-      if (g > 0) widgets.add(const SizedBox(height: 22));
-      widgets.add(
-        Padding(
-          padding: const EdgeInsets.only(left: 2, bottom: 10),
-          child: Text(entry.key.toUpperCase(), style: AppText.eyebrow()),
-        ),
+  Widget _buildBody(List<Map<String, dynamic>> logs) {
+    if (_isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: AppColors.navy),
       );
-      for (int i = 0; i < entry.value.length; i++) {
-        if (i > 0) widgets.add(const SizedBox(height: 8));
-        widgets.add(_buildLeaveLogTile(entry.value[i]));
-      }
     }
-    return widgets;
+
+    if (_errorMessage != null) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        children: [_buildErrorState()],
+      );
+    }
+
+    if (logs.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [_buildEmptyState()],
+      );
+    }
+
+    return ListView.separated(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+      itemCount: logs.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, i) => _buildLeaveLogTile(logs[i]),
+    );
   }
 
   // ---------------------------------------------------------------------
   // Header
   // ---------------------------------------------------------------------
 
-  /// Matches Home's gradient + glass-card treatment so the two screens read
-  /// as one app. The summary strip replaces the counts that used to sit
-  /// inside the filter chips, which left the control doing two jobs at once.
   Widget _buildHeader() {
     return Container(
       width: double.infinity,
@@ -372,18 +328,11 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
           bottomLeft: Radius.circular(28),
           bottomRight: Radius.circular(28),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x38131F3A),
-            blurRadius: 20,
-            offset: Offset(0, 8),
-          ),
-        ],
       ),
       child: SafeArea(
         bottom: false,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 20),
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -405,84 +354,9 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
                   color: Colors.white60,
                 ),
               ),
-              if (!_isLoading && _errorMessage == null) ...[
-                const SizedBox(height: 18),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _headerStat(
-                        icon: Icons.event_available_rounded,
-                        value: '${_fmtDays(_daysTakenThisYear)}d',
-                        label: 'Taken in ${DateTime.now().year}',
-                        accent: AppColors.amber,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _headerStat(
-                        icon: Icons.check_circle_outline_rounded,
-                        value: '$_approvedCount',
-                        label: 'Approved',
-                        accent: AppColors.teal,
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: _headerStat(
-                        icon: Icons.cancel_outlined,
-                        value: '$_cancelledCount',
-                        label: 'Cancelled',
-                        accent: AppColors.red,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
             ],
           ),
         ),
-      ),
-    );
-  }
-
-  Widget _headerStat({
-    required IconData icon,
-    required String value,
-    required String label,
-    required Color accent,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 11),
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.07),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.white.withOpacity(0.10)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(icon, size: 15, color: accent),
-          const SizedBox(height: 8),
-          Text(
-            value,
-            style: AppText.display(
-              size: 19,
-              weight: FontWeight.w700,
-              color: Colors.white,
-            ),
-          ),
-          const SizedBox(height: 1),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: AppText.body(
-              size: 10.5,
-              weight: FontWeight.w600,
-              color: Colors.white54,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -491,46 +365,46 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   // Filter
   // ---------------------------------------------------------------------
 
-  /// One connected control rather than three free-floating pills — reads as
-  /// a view switcher instead of three tappable buttons of equal weight.
-  /// Counts moved to the header, so each segment is now just a label.
-  Widget _buildSegmentedFilter() {
-    return Container(
-      padding: const EdgeInsets.all(4),
-      decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppColors.hairline),
-      ),
-      child: Row(
+  Widget _buildFilterRow() {
+    return SizedBox(
+      height: 58,
+      child: ListView(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
         children: [
-          Expanded(child: _segment('All', 'all')),
-          Expanded(child: _segment('Approved', 'approved')),
-          Expanded(child: _segment('Cancelled', 'cancelled')),
+          _chip('All', 'all'),
+          _chip('Approved', 'approved'),
+          _chip('Rejected', 'rejected'),
+          _chip('Cancelled', 'cancelled'),
         ],
       ),
     );
   }
 
-  Widget _segment(String label, String value) {
+  Widget _chip(String label, String value) {
     final isSelected = _filter == value;
-    return GestureDetector(
-      onTap: () => setState(() => _filter = value),
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(vertical: 9),
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          color: isSelected ? AppColors.navyDark : Colors.transparent,
-          borderRadius: BorderRadius.circular(9),
-        ),
-        child: Text(
-          label,
-          style: AppText.body(
-            size: 12.5,
-            weight: FontWeight.w700,
-            color: isSelected ? Colors.white : AppColors.muted,
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => setState(() => _filter = value),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          decoration: BoxDecoration(
+            color: isSelected ? AppColors.navyDark : AppColors.surface,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isSelected ? AppColors.navyDark : AppColors.hairline,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            label,
+            style: AppText.body(
+              size: 12.5,
+              weight: FontWeight.w700,
+              color: isSelected ? Colors.white : AppColors.muted,
+            ),
           ),
         ),
       ),
@@ -581,11 +455,11 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
 
   Widget _buildEmptyState() {
     final message = _filter == 'all'
-        ? 'Approved and cancelled requests land here once they are settled.'
+        ? 'Settled requests land here once HR has reviewed them.'
         : 'No $_filter requests yet.';
 
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 50, horizontal: 24),
+      padding: const EdgeInsets.symmetric(vertical: 60, horizontal: 24),
       child: Column(
         children: [
           Container(
@@ -631,158 +505,174 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   // Tile
   // ---------------------------------------------------------------------
 
+  Color _accentFor(String status) {
+    switch (status) {
+      case 'approved':
+        return AppColors.green;
+      case 'rejected':
+        return AppColors.red;
+      default:
+        return AppColors.muted;
+    }
+  }
+
+  String _labelFor(String status) {
+    switch (status) {
+      case 'approved':
+        return 'Approved';
+      case 'rejected':
+        return 'Rejected';
+      default:
+        return 'Cancelled';
+    }
+  }
+
+  IconData _iconFor(String status) {
+    switch (status) {
+      case 'approved':
+        return Icons.check_circle_rounded;
+      case 'rejected':
+        return Icons.cancel_rounded;
+      default:
+        return Icons.remove_circle_rounded;
+    }
+  }
+
+  /// Plain Column inside a plain Container. No stretch, no IntrinsicHeight,
+  /// no mixed-colour border — every one of those needed a height the list
+  /// could not give it. The status is carried by a coloured icon and badge
+  /// instead of a full-height rail.
   Widget _buildLeaveLogTile(Map<String, dynamic> item) {
     final status = (item['status'] ?? '').toString().toLowerCase();
     final isApproved = status == 'approved';
-    final accent = isApproved ? AppColors.green : AppColors.red;
+    final isRejected = status == 'rejected';
+    final accent = _accentFor(status);
     final leaveType = item['leave_type_name']?.toString() ?? 'Leave';
+    final reason = item['rejection_reason']?.toString();
 
-    return Material(
-      color: AppColors.surface,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: isApproved ? () => _viewPdf(item['id']) : null,
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppColors.hairline),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // A full-height status rail instead of a small dot — the
-              // approved/cancelled split is the primary thing being scanned,
-              // so it gets an edge the eye can run down.
-              Container(
-                width: 4,
-                decoration: BoxDecoration(
-                  color: accent,
-                  borderRadius: const BorderRadius.only(
-                    topLeft: Radius.circular(16),
-                    bottomLeft: Radius.circular(16),
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: isApproved ? () => _viewPdf(item['id']) : null,
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: AppColors.surface,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: AppColors.hairline),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(_iconFor(status), size: 16, color: accent),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    leaveType,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body(
+                      size: 14.5,
+                      weight: FontWeight.w800,
+                      color: AppColors.navyDark,
+                    ),
                   ),
                 ),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              leaveType,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppText.body(
-                                size: 14.5,
-                                weight: FontWeight.w800,
-                                color: AppColors.navyDark,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: accent.withOpacity(0.10),
-                              borderRadius: BorderRadius.circular(20),
-                            ),
-                            child: Text(
-                              isApproved ? 'Approved' : 'Cancelled',
-                              style: AppText.body(
-                                size: 10.5,
-                                weight: FontWeight.w800,
-                                color: accent,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 11),
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_today_rounded,
-                            size: 13,
-                            color: AppColors.muted.withOpacity(0.8),
-                          ),
-                          const SizedBox(width: 7),
-                          Expanded(
-                            child: Text(
-                              _dateRange(
-                                item['start_date']?.toString(),
-                                item['end_date']?.toString(),
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppText.body(
-                                size: 12.5,
-                                color: AppColors.navyDark.withOpacity(0.75),
-                              ),
-                            ),
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 3,
-                            ),
-                            decoration: BoxDecoration(
-                              color: AppColors.bg,
-                              borderRadius: BorderRadius.circular(7),
-                            ),
-                            child: Text(
-                              _formatDays(item['days_applied']),
-                              style: AppText.body(
-                                size: 11,
-                                weight: FontWeight.w700,
-                                color: AppColors.navyDark.withOpacity(0.7),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (isApproved) ...[
-                        const SizedBox(height: 11),
-                        Container(height: 1, color: AppColors.hairline),
-                        const SizedBox(height: 10),
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.description_outlined,
-                              size: 13,
-                              color: AppColors.navy.withOpacity(0.7),
-                            ),
-                            const SizedBox(width: 7),
-                            Text(
-                              'View leave form',
-                              style: AppText.body(
-                                size: 12,
-                                weight: FontWeight.w700,
-                                color: AppColors.navy.withOpacity(0.8),
-                              ),
-                            ),
-                            const Spacer(),
-                            Icon(
-                              Icons.arrow_forward_ios_rounded,
-                              size: 11,
-                              color: AppColors.muted.withOpacity(0.7),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ],
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: accent.withOpacity(0.10),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: Text(
+                    _labelFor(status),
+                    style: AppText.body(
+                      size: 10.5,
+                      weight: FontWeight.w800,
+                      color: accent,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    _dateRange(
+                      item['start_date']?.toString(),
+                      item['end_date']?.toString(),
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppText.body(
+                      size: 12.5,
+                      weight: FontWeight.w500,
+                      color: AppColors.navyDark,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  _formatDays(item['days_applied']),
+                  style: AppText.body(
+                    size: 11.5,
+                    weight: FontWeight.w700,
+                    color: AppColors.muted,
+                  ),
+                ),
+              ],
+            ),
+            // HR records a reason when declining; this is the only place the
+            // employee can ever see it.
+            if (isRejected && reason != null && reason.trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.bg,
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Text(
+                  reason,
+                  style: AppText.body(
+                    size: 11.5,
+                    weight: FontWeight.w500,
+                    color: AppColors.navyDark,
+                    height: 1.4,
                   ),
                 ),
               ),
             ],
-          ),
+            if (isApproved) ...[
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  const Icon(
+                    Icons.description_outlined,
+                    size: 13,
+                    color: AppColors.navy,
+                  ),
+                  const SizedBox(width: 6),
+                  Text(
+                    'View leave form',
+                    style: AppText.body(
+                      size: 12,
+                      weight: FontWeight.w700,
+                      color: AppColors.navy,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
         ),
       ),
     );
