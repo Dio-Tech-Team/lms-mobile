@@ -6,6 +6,7 @@ import '../services/leave_application_service.dart';
 import '../model/leave_type_option.dart';
 import '../utils/date_utils.dart';
 import '../widgets/date_picker_field.dart';
+import '../widgets/app_header.dart';
 
 class ApplyForLeave extends StatefulWidget {
   final List<dynamic>? leaveTypes;
@@ -26,7 +27,6 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
   bool _isSubmitting = false;
   String? _errorMessage;
 
-  static const Color _navyDark = Color(0xFF13224A);
   static const Color _navy = Color(0xFF1B3B63);
   static const Color _text = Color(0xFF1E3A5F);
   static const Color _muted = Color(0xFF8A97A8);
@@ -200,215 +200,202 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFEEF0F5),
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            pinned: true,
-            elevation: 0,
-            backgroundColor: _navy,
-            iconTheme: const IconThemeData(color: Colors.white),
-            centerTitle: false,
-            title: Text(
-              'Apply for Leave',
-              style: GoogleFonts.fraunces(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            flexibleSpace: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: [_navyDark, _navy],
-                ),
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: Form(
-              key: _formKey,
-              child: Padding(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (_errorMessage != null) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.red.withOpacity(0.08),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: Colors.red.withOpacity(0.3),
+      body: Column(
+        children: [
+          const AppHeader(title: 'Apply for Leave', showBack: true),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Form(
+                key: _formKey,
+                child: Padding(
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (_errorMessage != null) ...[
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: Colors.red.withOpacity(0.08),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: Colors.red.withOpacity(0.3),
+                            ),
                           ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.error_outline,
-                              color: Colors.red.shade400,
-                              size: 18,
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                _errorMessage!,
-                                style: GoogleFonts.nunito(
-                                  color: Colors.red,
-                                  fontSize: 13,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-
-                    _sectionCard(
-                      icon: Icons.event_note_rounded,
-                      label: 'Leave Type',
-                      child: DropdownButtonFormField<LeaveTypeOption>(
-                        value: _selectedLeaveType,
-                        isExpanded: true,
-                        decoration: _fieldDecoration(hint: 'Select leave type'),
-                        icon: const Icon(
-                          Icons.keyboard_arrow_down_rounded,
-                          color: _muted,
-                        ),
-                        style: GoogleFonts.nunito(color: _text, fontSize: 13.5),
-                        items: options
-                            .map(
-                              (opt) => DropdownMenuItem(
-                                value: opt,
-                                child: Text(
-                                  '${opt.name} (${opt.remainingBalance} left)',
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (val) {
-                          setState(() => _selectedLeaveType = val);
-                          _autoFillEndDateIfNeeded();
-                        },
-                        validator: (val) =>
-                            val == null ? 'Please select a leave type' : null,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    _sectionCard(
-                      icon: Icons.calendar_month_rounded,
-                      label: 'Dates',
-                      child: Column(
-                        children: [
-                          Row(
+                          child: Row(
                             children: [
-                              Expanded(
-                                child: DatePickerField(
-                                  label: 'Start date',
-                                  value: formatDate(_startDate),
-                                  onTap: () => _pickDate(isStart: true),
-                                ),
+                              Icon(
+                                Icons.error_outline,
+                                color: Colors.red.shade400,
+                                size: 18,
                               ),
-                              const SizedBox(width: 12),
+                              const SizedBox(width: 8),
                               Expanded(
-                                child: DatePickerField(
-                                  label: 'End date',
-                                  value: formatDate(_endDate),
-                                  onTap: () => _pickDate(isStart: false),
+                                child: Text(
+                                  _errorMessage!,
+                                  style: GoogleFonts.nunito(
+                                    color: Colors.red,
+                                    fontSize: 13,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
-                          if (_numberOfDays > 0) ...[
-                            const SizedBox(height: 12),
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 10,
-                                horizontal: 14,
-                              ),
-                              decoration: BoxDecoration(
-                                color: _navy.withOpacity(0.07),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Row(
-                                children: [
-                                  const Icon(
-                                    Icons.timelapse_rounded,
-                                    size: 16,
-                                    color: _navy,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    '$_numberOfDays day${_numberOfDays > 1 ? 's' : ''} requested',
-                                    style: GoogleFonts.nunito(
-                                      color: _navy,
-                                      fontSize: 12.5,
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-
-                    _sectionCard(
-                      icon: Icons.notes_rounded,
-                      label: 'Reason',
-                      child: TextFormField(
-                        controller: _reasonController,
-                        maxLines: 4,
-                        style: GoogleFonts.nunito(fontSize: 13.5, color: _text),
-                        decoration: _fieldDecoration(
-                          hint: 'Briefly describe your reason for leave',
                         ),
-                      ),
-                    ),
-                    const SizedBox(height: 28),
+                        const SizedBox(height: 16),
+                      ],
 
-                    SizedBox(
-                      width: double.infinity,
-                      height: 52,
-                      child: ElevatedButton(
-                        onPressed: _isSubmitting ? null : _submit,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _navy,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                      _sectionCard(
+                        icon: Icons.event_note_rounded,
+                        label: 'Leave Type',
+                        child: DropdownButtonFormField<LeaveTypeOption>(
+                          value: _selectedLeaveType,
+                          isExpanded: true,
+                          decoration: _fieldDecoration(
+                            hint: 'Select leave type',
                           ),
-                        ),
-                        child: _isSubmitting
-                            ? const SizedBox(
-                                width: 22,
-                                height: 22,
-                                child: CircularProgressIndicator(
-                                  color: Colors.white,
-                                  strokeWidth: 2.5,
+                          icon: const Icon(
+                            Icons.keyboard_arrow_down_rounded,
+                            color: _muted,
+                          ),
+                          style: GoogleFonts.nunito(
+                            color: _text,
+                            fontSize: 13.5,
+                          ),
+                          items: options
+                              .map(
+                                (opt) => DropdownMenuItem(
+                                  value: opt,
+                                  child: Text(
+                                    '${opt.name} (${opt.remainingBalance} left)',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
                                 ),
                               )
-                            : Text(
-                                'Submit Request',
-                                style: GoogleFonts.nunito(
-                                  fontSize: 15,
-                                  fontWeight: FontWeight.w700,
+                              .toList(),
+                          onChanged: (val) {
+                            setState(() => _selectedLeaveType = val);
+                            _autoFillEndDateIfNeeded();
+                          },
+                          validator: (val) =>
+                              val == null ? 'Please select a leave type' : null,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+
+                      _sectionCard(
+                        icon: Icons.calendar_month_rounded,
+                        label: 'Dates',
+                        child: Column(
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: DatePickerField(
+                                    label: 'Start date',
+                                    value: formatDate(_startDate),
+                                    onTap: () => _pickDate(isStart: true),
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                Expanded(
+                                  child: DatePickerField(
+                                    label: 'End date',
+                                    value: formatDate(_endDate),
+                                    onTap: () => _pickDate(isStart: false),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            if (_numberOfDays > 0) ...[
+                              const SizedBox(height: 12),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 10,
+                                  horizontal: 14,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: _navy.withOpacity(0.07),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Row(
+                                  children: [
+                                    const Icon(
+                                      Icons.timelapse_rounded,
+                                      size: 16,
+                                      color: _navy,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Text(
+                                      '$_numberOfDays day${_numberOfDays > 1 ? 's' : ''} requested',
+                                      style: GoogleFonts.nunito(
+                                        color: _navy,
+                                        fontSize: 12.5,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               ),
+                            ],
+                          ],
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                  ],
+                      const SizedBox(height: 16),
+
+                      _sectionCard(
+                        icon: Icons.notes_rounded,
+                        label: 'Reason',
+                        child: TextFormField(
+                          controller: _reasonController,
+                          maxLines: 4,
+                          style: GoogleFonts.nunito(
+                            fontSize: 13.5,
+                            color: _text,
+                          ),
+                          decoration: _fieldDecoration(
+                            hint: 'Briefly describe your reason for leave',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+
+                      SizedBox(
+                        width: double.infinity,
+                        height: 52,
+                        child: ElevatedButton(
+                          onPressed: _isSubmitting ? null : _submit,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: _navy,
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          child: _isSubmitting
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2.5,
+                                  ),
+                                )
+                              : Text(
+                                  'Submit Request',
+                                  style: GoogleFonts.nunito(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+                  ),
                 ),
               ),
             ),

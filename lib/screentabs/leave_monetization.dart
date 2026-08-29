@@ -5,6 +5,7 @@ import '../providers/auth_providers.dart';
 import '../services/leave_credit_service.dart';
 import '../services/leave_monetization_service.dart';
 import '../utils/app_theme.dart';
+import '../widgets/app_header.dart';
 
 class ApplyForLeaveMonetization extends StatefulWidget {
   /// False while another tab is showing. The parent keeps every tab alive
@@ -245,41 +246,24 @@ class _ApplyForLeaveMonetizationsState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.bg,
-      body: CustomScrollView(
-        slivers: [
-          SliverAppBar(
-            pinned: true,
-            elevation: 0,
-            backgroundColor: AppColors.navy,
-            automaticallyImplyLeading: false,
-            centerTitle: false,
-            title: Text(
-              'Leave Monetization',
-              style: AppText.display(
-                size: 20,
-                weight: FontWeight.w700,
-                color: Colors.white,
-              ),
+      body: Column(
+        children: [
+          const AppHeader(title: 'Leave Monetization'),
+          Expanded(
+            child: SingleChildScrollView(
+              child: _isLoading
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 100),
+                      child: Center(
+                        child: CircularProgressIndicator(color: AppColors.navy),
+                      ),
+                    )
+                  : _loadError != null
+                  ? _buildError()
+                  : _eligibleConfigs.isEmpty
+                  ? _buildEmpty()
+                  : _buildForm(),
             ),
-            flexibleSpace: Container(
-              decoration: const BoxDecoration(
-                gradient: AppColors.headerGradient,
-              ),
-            ),
-          ),
-          SliverToBoxAdapter(
-            child: _isLoading
-                ? const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 100),
-                    child: Center(
-                      child: CircularProgressIndicator(color: AppColors.navy),
-                    ),
-                  )
-                : _loadError != null
-                ? _buildError()
-                : _eligibleConfigs.isEmpty
-                ? _buildEmpty()
-                : _buildForm(),
           ),
         ],
       ),

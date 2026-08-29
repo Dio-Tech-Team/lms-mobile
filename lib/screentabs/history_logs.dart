@@ -7,6 +7,7 @@ import '../services/leave_application_service.dart';
 import '../widgets/pdf_view_page.dart';
 import '../utils/employee_app_utils.dart';
 import '../utils/app_theme.dart';
+import '../widgets/app_header.dart';
 
 class LeaveLogsPage extends StatefulWidget {
   final bool isActive;
@@ -320,47 +321,8 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   // ---------------------------------------------------------------------
 
   Widget _buildHeader() {
-    return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: AppColors.headerGradient,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(28),
-          bottomRight: Radius.circular(28),
-        ),
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Leave History',
-                style: AppText.display(
-                  size: 26,
-                  weight: FontWeight.w700,
-                  color: Colors.white,
-                  letterSpacing: 0.2,
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Every request that has been settled.',
-                style: AppText.body(
-                  size: 12.5,
-                  weight: FontWeight.w500,
-                  color: Colors.white60,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
+    return const AppHeader(title: 'Leave History');
   }
-
   // ---------------------------------------------------------------------
   // Filter
   // ---------------------------------------------------------------------

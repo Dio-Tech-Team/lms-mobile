@@ -13,6 +13,7 @@ import '../utils/employee_app_utils.dart';
 import '../utils/app_theme.dart';
 import 'dart:typed_data';
 import '../widgets/pdf_view_page.dart';
+import '../widgets/app_header.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -36,6 +37,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// Id of the application currently being cancelled, or null. Doubles as
   /// the double-submit guard and as the per-tile spinner flag.
   int? _cancellingId;
+  bool _isApplyOpen = false;
 
   Timer? _refreshTimer;
   static const Duration _networkTimeout = Duration(seconds: 30);
@@ -373,11 +375,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<void> _goToApplyLeave() async {
     final credits = extractCreditsList(_creditData);
 
+    setState(() => _isApplyOpen = true);
     final result = await _bodyNavigatorKey.currentState!.push(
       MaterialPageRoute(
         builder: (context) => ApplyForLeave(leaveTypes: credits),
       ),
     );
+    if (mounted) setState(() => _isApplyOpen = false);
 
     if (result != null) {
       await _loadCredits();
@@ -614,146 +618,104 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     required int pendingCount,
     required Map<String, double> approvedUsedByType,
   }) {
-    return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: AppColors.headerGradient,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(28),
-          bottomRight: Radius.circular(28),
+    return AppHeader(
+      title: 'Home',
+      bottom: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.05),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white.withOpacity(0.10)),
         ),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x38131F3A),
-            blurRadius: 20,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 14, 20, 22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Home',
-                style: AppText.display(
-                  size: 26,
-                  weight: FontWeight.w700,
-                  color: Colors.white,
-                  letterSpacing: 0.2,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.05),
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withOpacity(0.10)),
-                ),
-                child: Builder(
-                  builder: (context) {
-                    final vl = _statsForType(
-                      'Vacation Leave',
-                      credits,
-                      approvedUsedByType,
-                    );
-                    final sl = _statsForType(
-                      'Sick Leave',
-                      credits,
-                      approvedUsedByType,
-                    );
-                    final usedThisYear = (vl['used'] ?? 0) + (sl['used'] ?? 0);
-                    final year = _creditData?["year"]?.toString() ?? '';
+        child: Builder(
+          builder: (context) {
+            final vl = _statsForType(
+              'Vacation Leave',
+              credits,
+              approvedUsedByType,
+            );
+            final sl = _statsForType('Sick Leave', credits, approvedUsedByType);
+            final usedThisYear = (vl['used'] ?? 0) + (sl['used'] ?? 0);
+            final year = _creditData?["year"]?.toString() ?? '';
 
-                    return Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'OVERVIEW',
-                              style: AppText.eyebrow(
-                                size: 11,
-                                color: Colors.white60,
-                              ),
-                            ),
-                            if (year.isNotEmpty)
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 9,
-                                  vertical: 3,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.08),
-                                  borderRadius: BorderRadius.circular(20),
-                                ),
-                                child: Text(
-                                  year,
-                                  style: AppText.body(
-                                    size: 11,
-                                    weight: FontWeight.w700,
-                                    color: Colors.white70,
-                                  ),
-                                ),
-                              ),
-                          ],
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'OVERVIEW',
+                      style: AppText.eyebrow(size: 11, color: Colors.white60),
+                    ),
+                    if (year.isNotEmpty)
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 3,
                         ),
-                        const SizedBox(height: 14),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _overviewHeroStat(
-                                label: 'Vacation Leave',
-                                icon: Icons.flight_takeoff_rounded,
-                                remaining: vl['remaining'] ?? 0,
-                                total: vl['total'] ?? 0,
-                                accent: AppColors.amber,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _overviewHeroStat(
-                                label: 'Sick Leave',
-                                icon: Icons.medical_services_outlined,
-                                remaining: sl['remaining'] ?? 0,
-                                total: sl['total'] ?? 0,
-                                accent: AppColors.teal,
-                              ),
-                            ),
-                          ],
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(20),
                         ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _overviewPill(
-                                icon: Icons.event_busy_rounded,
-                                label: 'Used this year',
-                                value: '${_fmtDays(usedThisYear)}d',
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: _overviewPill(
-                                icon: Icons.pending_actions_rounded,
-                                label: 'Pending',
-                                value: '$pendingCount',
-                              ),
-                            ),
-                          ],
+                        child: Text(
+                          year,
+                          style: AppText.body(
+                            size: 11,
+                            weight: FontWeight.w700,
+                            color: Colors.white70,
+                          ),
                         ),
-                      ],
-                    );
-                  },
+                      ),
+                  ],
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _overviewHeroStat(
+                        label: 'Vacation Leave',
+                        icon: Icons.flight_takeoff_rounded,
+                        remaining: vl['remaining'] ?? 0,
+                        total: vl['total'] ?? 0,
+                        accent: AppColors.amber,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: _overviewHeroStat(
+                        label: 'Sick Leave',
+                        icon: Icons.medical_services_outlined,
+                        remaining: sl['remaining'] ?? 0,
+                        total: sl['total'] ?? 0,
+                        accent: AppColors.teal,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: _overviewPill(
+                        icon: Icons.event_busy_rounded,
+                        label: 'Used this year',
+                        value: '${_fmtDays(usedThisYear)}d',
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: _overviewPill(
+                        icon: Icons.pending_actions_rounded,
+                        label: 'Pending',
+                        value: '$pendingCount',
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -1310,7 +1272,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     required String label,
     required int index,
   }) {
-    final isSelected = _selectedIndex == index;
+    final isSelected = _selectedIndex == index && !_isApplyOpen;
     final color = isSelected
         ? AppColors.navy
         : AppColors.muted.withOpacity(0.7);

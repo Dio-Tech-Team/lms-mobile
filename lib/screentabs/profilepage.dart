@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../utils/employee_app_utils.dart';
 import '../utils/app_theme.dart';
+import '../widgets/app_header.dart';
 
 class ProfilePage extends StatefulWidget {
   final bool isActive;
@@ -248,104 +249,73 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     );
   }
 
+  // Widget _buildHeader() {
+  //   if (_employee == null) return const AppHeader(title: 'Profile');
+
+  //   final position = (_employee?['position'] ?? '').toString();
+
+  //   return AppHeader(
+  //     title: 'Profile',
+  //     bottom: Row(
+  //       children: [
+  //         Container(
+  //           width: 52,
+  //           height: 52,
+  //           decoration: BoxDecoration(
+  //             shape: BoxShape.circle,
+  //             color: Colors.white.withOpacity(0.10),
+  //             border: Border.all(color: Colors.white.withOpacity(0.16)),
+  //           ),
+  //           alignment: Alignment.center,
+  //           child: Text(
+  //             _initials(),
+  //             style: AppText.display(
+  //               size: 17,
+  //               weight: FontWeight.w700,
+  //               color: Colors.white,
+  //             ),
+  //           ),
+  //         ),
+  //         const SizedBox(width: 14),
+  //         Expanded(
+  //           child: Column(
+  //             crossAxisAlignment: CrossAxisAlignment.start,
+  //             children: [
+  //               Text(
+  //                 _fullName(),
+  //                 style: AppText.display(
+  //                   size: 20,
+  //                   weight: FontWeight.w700,
+  //                   color: Colors.white,
+  //                 ),
+  //               ),
+  //               if (position.isNotEmpty) ...[
+  //                 const SizedBox(height: 2),
+  //                 Text(
+  //                   position,
+  //                   maxLines: 1,
+  //                   overflow: TextOverflow.ellipsis,
+  //                   style: AppText.body(
+  //                     size: 12.5,
+  //                     weight: FontWeight.w500,
+  //                     color: Colors.white60,
+  //                   ),
+  //                 ),
+  //               ],
+  //             ],
+  //           ),
+  //         ),
+  //       ],
+  //     ),
+  //   );
+  // }
   Widget _buildHeader() {
-    return Container(
-      width: double.infinity,
-      decoration: const BoxDecoration(
-        gradient: AppColors.headerGradient,
-        borderRadius: BorderRadius.only(
-          bottomLeft: Radius.circular(28),
-          bottomRight: Radius.circular(28),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: Color(0x38131F3A),
-            blurRadius: 20,
-            offset: Offset(0, 8),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        bottom: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 12, 20, 22),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'PROFILE',
-                style: AppText.eyebrow(
-                  size: 11,
-                  color: Colors.white.withOpacity(0.55),
-                ),
-              ),
-              if (_employee != null) ...[
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: Colors.white.withOpacity(0.10),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.16),
-                        ),
-                      ),
-                      alignment: Alignment.center,
-                      child: Text(
-                        _initials(),
-                        style: AppText.display(
-                          size: 17,
-                          weight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 14),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            _fullName(),
-                            style: AppText.display(
-                              size: 20,
-                              weight: FontWeight.w700,
-                              color: Colors.white,
-                            ),
-                          ),
-                          if ((_employee?['position'] ?? '')
-                              .toString()
-                              .isNotEmpty) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              _employee!['position'].toString(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: AppText.body(
-                                size: 12.5,
-                                weight: FontWeight.w500,
-                                color: Colors.white60,
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
+    return const AppHeader(title: 'Profile');
   }
 
   Widget _buildInfoCard() {
     final rows = [
+      (Icons.person_outline_rounded, 'Name', _fullName()),
       (Icons.badge_outlined, 'ID Number', _employee?['id_number']),
       (Icons.work_outline_rounded, 'Position', _employee?['position']),
       (
