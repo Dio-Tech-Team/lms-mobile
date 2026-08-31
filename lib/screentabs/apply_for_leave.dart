@@ -139,7 +139,32 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
       }
     }
 
-    if (days > selected.remainingBalance) {
+    // if (days > selected.remainingBalance) {
+    //   setState(
+    //     () => _errorMessage =
+    //         'Insufficient leave balance. You only have ${selected.remainingBalance} '
+    //         'days remaining for ${selected.name}.',
+    //   );
+    //   return;
+    // }
+    // The backend hard-blocks these types on insufficient balance. VL and SL
+    // fall through to Leave Without Pay instead, so don't block them here.
+    const hardBlockedCodes = [
+      'WL',
+      'SPL',
+      'SOL',
+      'ML',
+      'PTL',
+      'VAWC',
+      'RHL',
+      'SLB',
+      'STL',
+      'ADL',
+      'CAL',
+    ];
+
+    if (hardBlockedCodes.contains(selected.code) &&
+        days > selected.remainingBalance) {
       setState(
         () => _errorMessage =
             'Insufficient leave balance. You only have ${selected.remainingBalance} '
