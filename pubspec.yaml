@@ -95,4 +95,4 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/images/leavesync-icon.png"
+  image_path: "assets/images/leavesync_logo.png"
