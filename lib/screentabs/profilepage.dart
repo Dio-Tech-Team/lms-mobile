@@ -5,6 +5,7 @@ import '../providers/auth_providers.dart';
 import '../utils/employee_app_utils.dart';
 import '../utils/app_theme.dart';
 import '../widgets/app_header.dart';
+import 'edit_profile_page.dart';
 
 class ProfilePage extends StatefulWidget {
   final bool isActive;
@@ -20,6 +21,10 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
   Map<String, dynamic>? _employee;
   bool _isLoading = true;
   String? _errorMessage;
+
+  // Personal details are mostly write-once, so they stay collapsed until
+  // asked for. Work Information is what people actually come here to read.
+  bool _showPersonal = false;
 
   Timer? _refreshTimer;
   static const Duration _refreshInterval = Duration(seconds: 60);
@@ -189,6 +194,37 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
                     _buildSectionLabel('Work Information'),
                     const SizedBox(height: 10),
                     _buildInfoCard(),
+                    const SizedBox(height: 26),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        _buildSectionLabel('Personal Information'),
+                        TextButton.icon(
+                          onPressed: _openEdit,
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppColors.navy,
+                            padding: const EdgeInsets.symmetric(horizontal: 8),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          icon: const Icon(Icons.edit_outlined, size: 15),
+                          label: Text(
+                            'Edit',
+                            style: AppText.body(
+                              size: 13,
+                              weight: FontWeight.w700,
+                              color: AppColors.navy,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    if (_showPersonal) ...[
+                      _buildPersonalCard(),
+                      const SizedBox(height: 10),
+                    ],
+                    _buildPersonalToggle(),
                     const SizedBox(height: 32),
                     _buildLogoutButton(context),
                   ],
@@ -198,6 +234,71 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         ),
       ),
     );
+  }
+
+  /// Also reports how many personal fields are still blank, so an
+  /// employee who has never filled the form has a reason to open it.
+  Widget _buildPersonalToggle() {
+    final missing = _missingPersonalCount();
+
+    return InkWell(
+      onTap: () => setState(() => _showPersonal = !_showPersonal),
+      borderRadius: BorderRadius.circular(12),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+        child: Row(
+          children: [
+            Text(
+              _showPersonal ? 'Hide details' : 'View all details',
+              style: AppText.body(
+                size: 13,
+                weight: FontWeight.w700,
+                color: AppColors.navy,
+              ),
+            ),
+            const SizedBox(width: 5),
+            Icon(
+              _showPersonal
+                  ? Icons.keyboard_arrow_up_rounded
+                  : Icons.keyboard_arrow_down_rounded,
+              size: 18,
+              color: AppColors.navy,
+            ),
+            const Spacer(),
+            if (!_showPersonal && missing > 0)
+              Text(
+                '$missing not filled in',
+                style: AppText.body(size: 12, color: AppColors.muted),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  int _missingPersonalCount() {
+    const keys = [
+      'birthdate',
+      'place_of_birth',
+      'residential_address',
+      'contact_number',
+      'sex',
+      'civil_status',
+      'height',
+      'weight',
+      'bloodtype',
+      'highest_educational_attainment',
+      'tin_number',
+      'umid_id',
+      'pagibig_id',
+      'philhealth_number',
+      'psn_number',
+    ];
+
+    return keys.where((k) {
+      final v = _employee?[k]?.toString();
+      return v == null || v.isEmpty;
+    }).length;
   }
 
   Widget _buildLogoutButton(BuildContext context) {
@@ -313,6 +414,21 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
     return const AppHeader(title: 'Profile');
   }
 
+  Future<void> _openEdit() async {
+    final saved = await Navigator.of(
+      context,
+    ).push<bool>(MaterialPageRoute(builder: (_) => const EditProfilePage()));
+    // EditProfilePage already refreshed the provider; pull the new
+    // values into local state so the card repaints. Expand too, so the
+    // employee can see what they just saved.
+    if (saved == true && mounted) {
+      setState(() {
+        _employee = Provider.of<AuthProvider>(context, listen: false).employee;
+        _showPersonal = true;
+      });
+    }
+  }
+
   Widget _buildInfoCard() {
     final rows = [
       (Icons.person_outline_rounded, 'Name', _fullName()),
@@ -335,6 +451,63 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
       (Icons.mail_outline_rounded, 'Email', _employee?['email']),
     ];
 
+    return _cardOfRows(rows);
+  }
+
+  /// The fields employees maintain themselves. Blanks show as an em dash
+  /// so it's obvious what still needs filling in.
+  Widget _buildPersonalCard() {
+    final rows = [
+      (
+        Icons.cake_outlined,
+        'Birthdate',
+        formatIsoDate(_employee?['birthdate']?.toString(), placeholder: '—'),
+      ),
+      (Icons.place_outlined, 'Place of Birth', _employee?['place_of_birth']),
+      (
+        Icons.home_outlined,
+        'Residential Address',
+        _employee?['residential_address'],
+      ),
+      (Icons.phone_outlined, 'Contact Number', _employee?['contact_number']),
+      (
+        Icons.wc_outlined,
+        'Sex',
+        titleCaseOrPlaceholder(_employee?['sex']?.toString(), placeholder: '—'),
+      ),
+      (
+        Icons.favorite_outline_rounded,
+        'Civil Status',
+        titleCaseOrPlaceholder(
+          _employee?['civil_status']?.toString(),
+          placeholder: '—',
+        ),
+      ),
+      (Icons.straighten_rounded, 'Height / Weight', _heightWeight()),
+      (Icons.bloodtype_outlined, 'Blood Type', _employee?['bloodtype']),
+      (
+        Icons.school_outlined,
+        'Education',
+        titleCaseOrPlaceholder(
+          _employee?['highest_educational_attainment']?.toString(),
+          placeholder: '—',
+        ),
+      ),
+      (Icons.receipt_long_outlined, 'TIN', _employee?['tin_number']),
+      (Icons.credit_card_outlined, 'UMID', _employee?['umid_id']),
+      (Icons.savings_outlined, 'Pag-IBIG', _employee?['pagibig_id']),
+      (
+        Icons.local_hospital_outlined,
+        'PhilHealth',
+        _employee?['philhealth_number'],
+      ),
+      (Icons.fingerprint_rounded, 'PSN', _employee?['psn_number']),
+    ];
+
+    return _cardOfRows(rows);
+  }
+
+  Widget _cardOfRows(List<(IconData, String, dynamic)> rows) {
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -362,6 +535,14 @@ class _ProfilePageState extends State<ProfilePage> with WidgetsBindingObserver {
         ],
       ),
     );
+  }
+
+  String _heightWeight() {
+    final h = _employee?['height']?.toString();
+    final w = _employee?['weight']?.toString();
+    final hs = (h == null || h.isEmpty) ? '—' : '$h cm';
+    final ws = (w == null || w.isEmpty) ? '—' : '$w kg';
+    return '$hs / $ws';
   }
 
   Widget _infoRow(IconData icon, String label, dynamic value) {
