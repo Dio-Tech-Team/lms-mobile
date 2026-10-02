@@ -603,6 +603,22 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
     final accent = _accentFor(status);
     final leaveType = item['leave_type_name']?.toString() ?? 'Leave';
     final reason = item['rejection_reason']?.toString();
+    final cancelReason = item['cancellation_reason']?.toString();
+    final isCancelled = status == 'cancelled';
+    // Approved leave that HR cut short after the employee returned early
+    final isShortened = isApproved && item['cancelled_at'] != null;
+
+    final cancelledOn = _singleDate(item['cancelled_at']?.toString());
+    final origDays = double.tryParse(
+      item['original_days_applied']?.toString() ?? '',
+    );
+    final curDays =
+        double.tryParse(item['days_applied']?.toString() ?? '') ?? 0;
+    // Shortened: original − remaining. Full cancel: every day was cancelled.
+    final daysCancelled = origDays == null
+        ? null
+        : (isShortened ? origDays - curDays : origDays);
+    final cancelledByHr = item['cancelled_at'] != null;
 
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -672,6 +688,41 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
               const SizedBox(height: 10),
               _reasonPanel(reason),
             ],
+
+            // Cancelled by HR after approval. Employee self-cancels of pending
+            // requests have no cancelled_at, so nothing shows for those.
+            if (isCancelled && cancelledByHr) ...[
+              const SizedBox(height: 10),
+              _reasonPanel(
+                'Cancelled by HR on $cancelledOn'
+                '${daysCancelled != null ? ' · ${_fmtDays(daysCancelled)} day(s) cancelled' : ''}'
+                '${cancelReason != null && cancelReason.trim().isNotEmpty ? '\nReason: $cancelReason' : ''}',
+              ),
+            ],
+            if (isShortened) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppColors.amber.withOpacity(0.10),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: Text(
+                  'Shortened by HR on $cancelledOn'
+                  '${item['original_end_date'] != null ? '\nOriginally ${_dateRange(item['start_date']?.toString(), item['original_end_date']?.toString())}${origDays != null ? ' (${_formatDays(origDays)})' : ''}' : ''}'
+                  '${daysCancelled != null ? ' · ${_fmtDays(daysCancelled)} day(s) cancelled' : ''}'
+                  '${cancelReason != null && cancelReason.trim().isNotEmpty ? '\nReason: $cancelReason' : ''}',
+                  style: AppText.body(
+                    size: 11.5,
+                    weight: FontWeight.w500,
+                    color: const Color(0xFF8A5A16),
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ],
+
             if (isApproved) ...[
               const SizedBox(height: 10),
               Row(

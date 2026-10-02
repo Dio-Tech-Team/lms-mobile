@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:provider/provider.dart';
@@ -26,6 +27,12 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
   DateTime? _endDate;
   bool _isSubmitting = false;
   String? _errorMessage;
+
+  /// The backend's own count for the chosen range. Local _numberOfDays is
+  /// calendar days; this is what actually gets deducted.
+  Map<String, dynamic>? _preview;
+  bool _previewLoading = false;
+  Timer? _previewTimer;
 
   static const Duration _networkTimeout = Duration(seconds: 30);
   static const Color _navy = Color(0xFF1B3B63);
@@ -79,6 +86,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
       }
     });
     _autoFillEndDateIfNeeded();
+    _schedulePreview();
   }
 
   void _autoFillEndDateIfNeeded() {
@@ -92,6 +100,47 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
         });
       }
     }
+  }
+
+  /// Asks the backend what this range actually costs before the employee
+  /// commits to it. Debounced, since it fires on every date and type change.
+  void _schedulePreview() {
+    _previewTimer?.cancel();
+
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final token = auth.token;
+    final employeeId = auth.employeeId;
+
+    if (token == null ||
+        employeeId == null ||
+        _selectedLeaveType == null ||
+        _startDate == null ||
+        _endDate == null ||
+        _endDate!.isBefore(_startDate!)) {
+      setState(() {
+        _preview = null;
+        _previewLoading = false;
+      });
+      return;
+    }
+
+    setState(() => _previewLoading = true);
+
+    _previewTimer = Timer(const Duration(milliseconds: 350), () async {
+      final result = await LeaveApplicationService.preview(
+        employeeId: employeeId,
+        leaveConfigurationId: _selectedLeaveType!.id,
+        startDate: _startDate!,
+        endDate: _endDate!,
+        token: token,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _preview = result['success'] == true ? result['data'] : null;
+        _previewLoading = false;
+      });
+    });
   }
 
   Future<void> _submit() async {
@@ -173,6 +222,56 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
       return;
     }
 
+    // Unpaid days are the one consequence the employee cannot undo after
+    // approval, so make them say yes to it explicitly.
+    if (_preview != null && _preview!['will_be_lwop'] == true) {
+      final proceed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(
+            'Some days will be unpaid',
+            style: GoogleFonts.nunito(
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+              color: _text,
+            ),
+          ),
+          content: Text(
+            'You have ${_preview!['remaining_balance']} day(s) of '
+            '${_preview!['target_code']} left but are applying for '
+            '${_preview!['days_applied']}. '
+            '${_preview!['shortfall']} day(s) will be recorded as Leave '
+            'Without Pay. Submit anyway?',
+            style: GoogleFonts.nunito(fontSize: 13.5, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(
+                'Go back',
+                style: GoogleFonts.nunito(
+                  fontWeight: FontWeight.w600,
+                  color: _muted,
+                ),
+              ),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(
+                'Submit anyway',
+                style: GoogleFonts.nunito(
+                  fontWeight: FontWeight.w800,
+                  color: _navy,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      if (proceed != true || !mounted) return;
+    }
+
     setState(() {
       _isSubmitting = true;
       _errorMessage = null;
@@ -230,6 +329,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
 
   @override
   void dispose() {
+    _previewTimer?.cancel();
     _reasonController.dispose();
     super.dispose();
   }
@@ -317,6 +417,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                           onChanged: (val) {
                             setState(() => _selectedLeaveType = val);
                             _autoFillEndDateIfNeeded();
+                            _schedulePreview();
                           },
                           validator: (val) =>
                               val == null ? 'Please select a leave type' : null,
@@ -348,34 +449,98 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                                 ),
                               ],
                             ),
-                            if (_numberOfDays > 0) ...[
+                            if (_previewLoading) ...[
+                              const SizedBox(height: 12),
+                              Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  'Calculating…',
+                                  style: GoogleFonts.nunito(
+                                    color: _muted,
+                                    fontSize: 12.5,
+                                  ),
+                                ),
+                              ),
+                            ] else if (_preview != null) ...[
                               const SizedBox(height: 12),
                               Container(
                                 width: double.infinity,
                                 padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
+                                  vertical: 12,
                                   horizontal: 14,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: _navy.withOpacity(0.07),
+                                  color: _preview!['hard_blocked'] == true
+                                      ? Colors.red.withOpacity(0.08)
+                                      : _preview!['will_be_lwop'] == true
+                                      ? const Color(
+                                          0xFFD98F32,
+                                        ).withOpacity(0.12)
+                                      : _navy.withOpacity(0.07),
                                   borderRadius: BorderRadius.circular(10),
                                 ),
-                                child: Row(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Icon(
-                                      Icons.timelapse_rounded,
-                                      size: 16,
-                                      color: _navy,
-                                    ),
-                                    const SizedBox(width: 8),
                                     Text(
-                                      '$_numberOfDays day${_numberOfDays > 1 ? 's' : ''} requested',
+                                      '${_preview!['days_applied']} day(s) will be deducted',
                                       style: GoogleFonts.nunito(
-                                        color: _navy,
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w700,
+                                        color: _text,
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w800,
                                       ),
                                     ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _preview!['counting'] == 'working'
+                                          ? 'Weekends and holidays are not counted.'
+                                          : 'Counted as calendar days.',
+                                      style: GoogleFonts.nunito(
+                                        color: _muted,
+                                        fontSize: 11.5,
+                                      ),
+                                    ),
+                                    if (_preview!['remaining_balance'] !=
+                                        null) ...[
+                                      const SizedBox(height: 6),
+                                      Text(
+                                        '${_preview!['target_code']} balance: '
+                                        '${_preview!['remaining_balance']} → '
+                                        '${_preview!['balance_after']}',
+                                        style: GoogleFonts.nunito(
+                                          color: _text,
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                    if (_preview!['hard_blocked'] == true) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        'You do not have enough balance for this '
+                                        'leave type. This request will be refused.',
+                                        style: GoogleFonts.nunito(
+                                          color: Colors.red.shade700,
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w700,
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                    ] else if (_preview!['will_be_lwop'] ==
+                                        true) ...[
+                                      const SizedBox(height: 8),
+                                      Text(
+                                        '${_preview!['shortfall']} day(s) will be '
+                                        'recorded as Leave Without Pay — you will '
+                                        'not be paid for them.',
+                                        style: GoogleFonts.nunito(
+                                          color: const Color(0xFF8A5A16),
+                                          fontSize: 12.5,
+                                          fontWeight: FontWeight.w700,
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),

@@ -105,6 +105,46 @@ class LeaveApplicationService {
     }
   }
 
+  /// Dry run: what the backend will actually count for this range, and
+  /// what it does to the balance. Used to warn before submitting rather
+  /// than after approval.
+  static Future<Map<String, dynamic>> preview({
+    required int employeeId,
+    required int leaveConfigurationId,
+    required DateTime startDate,
+    required DateTime endDate,
+    required String token,
+  }) async {
+    final uri = Uri.parse('$baseUrl/leave-applications/preview');
+
+    try {
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({
+          'employee_id': employeeId,
+          'leave_configuration_id': leaveConfigurationId,
+          'start_date': _formatDate(startDate),
+          'end_date': _formatDate(endDate),
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        return {
+          'success': true,
+          'data': jsonDecode(response.body) as Map<String, dynamic>,
+        };
+      }
+      return {'success': false};
+    } catch (e) {
+      return {'success': false};
+    }
+  }
+
   static Future<Map<String, dynamic>> getApplicationPdfBytes({
     required int applicationId,
     required String token,

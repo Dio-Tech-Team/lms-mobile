@@ -14,6 +14,7 @@ import '../utils/app_theme.dart';
 import 'dart:typed_data';
 import '../widgets/pdf_view_page.dart';
 import '../widgets/app_header.dart';
+import '../utils/unseen_decisions.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -38,6 +39,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   /// the double-submit guard and as the per-tile spinner flag.
   int? _cancellingId;
   bool _isApplyOpen = false;
+
+  /// Decisions made since the employee last opened History.
+  int _unseenDecisions = 0;
 
   Timer? _refreshTimer;
   static const Duration _networkTimeout = Duration(seconds: 30);
@@ -66,7 +70,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     _loadCredits();
     _loadPendingApplications();
-    _loadApprovedApplications();
+    // _loadApprovedApplications();
+    _loadApprovedApplications().then((_) => _refreshUnseenCount());
     _loadEmploymentStatus();
 
     _refreshTimer = Timer.periodic(_refreshInterval, (_) {
@@ -245,6 +250,42 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       }
     } catch (e) {
       debugPrint('LOAD APPROVED FAILED: $e');
+    }
+  }
+
+  /// Approved is already in hand from _loadApprovedApplications; rejected
+  /// and cancelled need their own calls. Two extra requests, run on load
+  /// and on the same timer as pending — not on every tab switch, which
+  /// is what trips the 429.
+  Future<void> _refreshUnseenCount() async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final token = auth.token;
+    if (token == null) return;
+
+    try {
+      final results = await Future.wait([
+        LeaveApplicationService.getMyApplications(
+          token: token,
+          status: 'rejected',
+        ),
+        LeaveApplicationService.getMyApplications(
+          token: token,
+          status: 'cancelled',
+        ),
+      ]).timeout(_networkTimeout);
+
+      final settled = <dynamic>[..._approvedApplications];
+      for (final r in results) {
+        if (r['success'] == true) settled.addAll(r['data'] as List<dynamic>);
+      }
+
+      final since = await UnseenDecisions.lastSeen();
+      if (!mounted) return;
+      setState(() {
+        _unseenDecisions = UnseenDecisions.countSince(settled, since);
+      });
+    } catch (e) {
+      debugPrint('UNSEEN COUNT FAILED: $e');
     }
   }
 
@@ -1180,6 +1221,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   icon: Icons.history_rounded,
                   label: 'History',
                   index: 3,
+                  badge: _unseenDecisions,
                 ),
               ),
               Expanded(
@@ -1273,6 +1315,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     required IconData icon,
     required String label,
     required int index,
+    int badge = 0,
   }) {
     final isSelected = _selectedIndex == index && !_isApplyOpen;
     final color = isSelected
@@ -1283,6 +1326,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         _popToTabRoot();
         final wasInactive = _selectedIndex != 0 && index == 0;
         setState(() => _selectedIndex = index);
+        if (index == 3) {
+          UnseenDecisions.markSeen();
+          setState(() => _unseenDecisions = 0);
+        }
         if (wasInactive) {
           _loadCredits(silent: true);
           _loadPendingApplications(silent: true);
@@ -1296,7 +1343,41 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, size: 22, color: color),
+            Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Icon(icon, size: 22, color: color),
+                if (badge > 0)
+                  Positioned(
+                    right: -3,
+                    top: -2,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 4,
+                        vertical: 1,
+                      ),
+                      constraints: const BoxConstraints(minWidth: 15),
+                      decoration: BoxDecoration(
+                        color: AppColors.red,
+                        borderRadius: BorderRadius.circular(9),
+                        border: Border.all(
+                          color: AppColors.surface,
+                          width: 1.5,
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: Text(
+                        badge > 9 ? '9+' : '$badge',
+                        style: AppText.body(
+                          size: 8.5,
+                          weight: FontWeight.w800,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(height: 3),
             Text(
               label,
