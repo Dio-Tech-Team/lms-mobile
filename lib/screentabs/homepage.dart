@@ -339,6 +339,65 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
   }
 
+  /// Opens the employee's own CSC leave card PDF for the current year.
+  /// Monthly rows explain each month's credit (absences, late/undertime).
+  Future<void> _viewLeaveCard() async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final token = auth.token;
+    final employeeId = auth.employeeId;
+    if (token == null || employeeId == null) return;
+
+    final year =
+        int.tryParse(_creditData?['year']?.toString() ?? '') ??
+        DateTime.now().year;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      useRootNavigator: true,
+      builder: (_) =>
+          const Center(child: CircularProgressIndicator(color: AppColors.navy)),
+    );
+
+    try {
+      final result = await LeaveApplicationService.getLeaveCardPdfBytes(
+        employeeId: employeeId,
+        year: year,
+        token: token,
+      ).timeout(_networkTimeout);
+
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+
+      if (result['success'] != true) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message'] ?? 'Unable to load leave card.'),
+          ),
+        );
+        return;
+      }
+
+      final rawBytes = result['bytes'];
+      final Uint8List bytes = rawBytes is Uint8List
+          ? rawBytes
+          : Uint8List.fromList(List<int>.from(rawBytes as List));
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              PdfViewOnlyPage(bytes: bytes, title: 'Leave Card $year'),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      Navigator.of(context, rootNavigator: true).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Request timed out. Please try again.')),
+      );
+    }
+  }
+
   /// Withdraws a still-pending application. Pending applications never
   /// deducted credits, so there is nothing to restore — the backend just
   /// flips the status and writes an activity log entry.
@@ -755,6 +814,35 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       ),
                     ),
                   ],
+                ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  onTap: _viewLeaveCard,
+                  behavior: HitTestBehavior.opaque,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Icon(
+                        Icons.receipt_long_outlined,
+                        size: 14,
+                        color: Colors.white70,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'View leave card',
+                        style: AppText.body(
+                          size: 12,
+                          weight: FontWeight.w700,
+                          color: Colors.white70,
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        size: 16,
+                        color: Colors.white70,
+                      ),
+                    ],
+                  ),
                 ),
               ],
             );

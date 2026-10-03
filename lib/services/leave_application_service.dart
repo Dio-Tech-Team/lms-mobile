@@ -179,6 +179,45 @@ class LeaveApplicationService {
     }
   }
 
+  /// The employee's own CSC leave card for a year. The backend only allows
+  /// this for the logged-in employee's record (403 otherwise).
+  static Future<Map<String, dynamic>> getLeaveCardPdfBytes({
+    required int employeeId,
+    required int year,
+    required String token,
+  }) async {
+    final uri = Uri.parse(
+      '$baseUrl/employees/$employeeId/leave-card/pdf',
+    ).replace(queryParameters: {'year': '$year'});
+
+    try {
+      final response = await http.get(
+        uri,
+        headers: {
+          'Accept': 'application/pdf',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      if (response.statusCode == 200) {
+        return {'success': true, 'bytes': response.bodyBytes};
+      }
+
+      String message = 'Failed to load leave card (${response.statusCode}).';
+      try {
+        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        message = body['message'] ?? message;
+      } catch (_) {}
+
+      return {'success': false, 'message': message};
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Network error: Unable to connect to server.',
+      };
+    }
+  }
+
   /// Cancels a pending leave application. The backend rejects anything that
   /// is not still pending (400) and anything belonging to another employee
   /// (403), so both cases surface as a normal failure message here.
