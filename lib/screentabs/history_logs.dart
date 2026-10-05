@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import '../providers/auth_providers.dart';
 import '../services/leave_application_service.dart';
 import '../services/leave_monetization_service.dart';
+import '../services/attendance_service.dart';
 import '../widgets/pdf_view_page.dart';
 import '../utils/employee_app_utils.dart';
 import '../utils/app_theme.dart';
@@ -20,24 +21,30 @@ class LeaveLogsPage extends StatefulWidget {
 
 class _LeaveLogsPageState extends State<LeaveLogsPage>
     with WidgetsBindingObserver {
-  /// Holds both leave applications and monetization requests. Each entry
-  /// carries a '_kind' key added during the merge, since the two have
-  /// different shapes — an application has a date range and a PDF, a
-  /// monetization has neither.
+  /// Holds leave applications, monetization requests and tardiness records.
+  /// Each entry carries a '_kind' key added during the merge, since the
+  /// three have different shapes.
   List<Map<String, dynamic>> _leaveLogs = [];
 
   bool _isLoading = true;
   String? _errorMessage;
 
-  /// 'all' | 'approved' | 'rejected' | 'cancelled'
+  /// Status filter: 'all' | 'approved' | 'rejected' | 'cancelled'
   String _filter = 'all';
+
+  /// Type filter: 'all' | 'application' | 'monetization' | 'tardiness'
+  String _type = 'all';
 
   Timer? _refreshTimer;
   static const Duration _networkTimeout = Duration(seconds: 30);
+  // Outer limit for the whole load; larger because paginated sources make
+  // several requests in sequence.
+  static const Duration _totalTimeout = Duration(seconds: 90);
   static const Duration _refreshInterval = Duration(seconds: 60);
 
   static const String _kindApplication = 'application';
   static const String _kindMonetization = 'monetization';
+  static const String _kindTardiness = 'tardiness';
 
   @override
   void initState() {
@@ -88,6 +95,28 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
     super.dispose();
   }
 
+  /// Walks every page of a paginated endpoint and returns one merged result.
+  Future<Map<String, dynamic>> _fetchAllPages(
+    Future<Map<String, dynamic>> Function(int page) fetch,
+  ) async {
+    final all = <dynamic>[];
+    var page = 1;
+    var last = 1;
+
+    do {
+      final r = await fetch(page).timeout(_networkTimeout);
+      if (r['success'] != true) {
+        // Keep whatever earlier pages loaded rather than dropping everything.
+        return page == 1 ? r : {'success': true, 'data': all};
+      }
+      all.addAll(List<dynamic>.from(r['data'] ?? []));
+      last = (r['lastPage'] as num?)?.toInt() ?? 1;
+      page++;
+    } while (page <= last);
+
+    return {'success': true, 'data': all};
+  }
+
   Future<void> _loadLogs({bool silent = false}) async {
     if (!silent) {
       setState(() {
@@ -111,37 +140,43 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
     }
 
     try {
-      // Rejected is fetched alongside approved and cancelled — without it an
-      // employee whose request was denied sees nothing at all, and never
-      // learns the reason HR recorded. Monetization requests are fetched
-      // the same three ways: to the employee they are settled requests too,
-      // and looking for them anywhere else would be guesswork.
-      final results = await Future.wait([
-        LeaveApplicationService.getMyApplications(
+      // Leave applications: every page, per status.
+      Future<Map<String, dynamic>> app(String s) => _fetchAllPages(
+        (p) => LeaveApplicationService.getMyApplications(
           token: token,
-          status: 'approved',
-        ).timeout(_networkTimeout),
-        LeaveApplicationService.getMyApplications(
-          token: token,
-          status: 'rejected',
-        ).timeout(_networkTimeout),
-        LeaveApplicationService.getMyApplications(
-          token: token,
-          status: 'cancelled',
-        ).timeout(_networkTimeout),
-        LeaveMonetizationService.getMyRequests(
-          token: token,
-          status: 'approved',
-        ).timeout(_networkTimeout),
-        LeaveMonetizationService.getMyRequests(
-          token: token,
-          status: 'rejected',
-        ).timeout(_networkTimeout),
-        LeaveMonetizationService.getMyRequests(
-          token: token,
-          status: 'cancelled',
-        ).timeout(_networkTimeout),
-      ]).timeout(_networkTimeout + const Duration(seconds: 2));
+          status: s,
+          page: p,
+        ),
+      );
+
+      // Monetization: single call per status. If getMyRequests also accepts
+      // `page` and returns `lastPage`, wrap it in _fetchAllPages like above.
+      Future<Map<String, dynamic>> mon(String s) =>
+          LeaveMonetizationService.getMyRequests(
+            token: token,
+            status: s,
+          ).timeout(_networkTimeout);
+
+      // Each call is tagged with its kind, so adding a new source never
+      // depends on its position in the list.
+      final calls = <MapEntry<String, Future<Map<String, dynamic>>>>[
+        MapEntry(_kindApplication, app('approved')),
+        MapEntry(_kindApplication, app('rejected')),
+        MapEntry(_kindApplication, app('cancelled')),
+        MapEntry(_kindMonetization, mon('approved')),
+        MapEntry(_kindMonetization, mon('rejected')),
+        MapEntry(_kindMonetization, mon('cancelled')),
+        MapEntry(
+          _kindTardiness,
+          AttendanceService.getMyAttendance(
+            token: token,
+          ).timeout(_networkTimeout),
+        ),
+      ];
+
+      final results = await Future.wait(
+        calls.map((c) => c.value),
+      ).timeout(_totalTimeout);
 
       final List<Map<String, dynamic>> logs = [];
 
@@ -149,23 +184,18 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
         final result = results[i];
         if (result['success'] != true) continue;
 
-        // First three calls are applications, last three monetizations.
-        final kind = i < 3 ? _kindApplication : _kindMonetization;
-
+        final kind = calls[i].key;
         for (final row in List<dynamic>.from(result['data'] ?? [])) {
           logs.add({...Map<String, dynamic>.from(row), '_kind': kind});
         }
       }
 
-      logs.sort((a, b) {
-        final da =
-            DateTime.tryParse(a['applied_at']?.toString() ?? '') ??
-            DateTime(1970);
-        final db =
-            DateTime.tryParse(b['applied_at']?.toString() ?? '') ??
-            DateTime(1970);
-        return db.compareTo(da);
-      });
+      // Tardiness has no applied_at, so fall back to its period date.
+      DateTime sortDate(Map<String, dynamic> m) =>
+          DateTime.tryParse((m['applied_at'] ?? m['period'])?.toString() ?? '') ??
+          DateTime(1970);
+
+      logs.sort((a, b) => sortDate(b).compareTo(sortDate(a)));
 
       if (!mounted) return;
       setState(() {
@@ -237,14 +267,28 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   }
 
   List<Map<String, dynamic>> get _visibleLogs {
-    if (_filter == 'all') return _leaveLogs;
-    return _leaveLogs
-        .where((l) => (l['status'] ?? '').toString().toLowerCase() == _filter)
-        .toList();
+    return _leaveLogs.where((l) {
+      if (_type != 'all' && l['_kind'] != _type) return false;
+
+      // Tardiness has no status, so the status chips only apply to requests.
+      if (_filter != 'all') {
+        if (l['_kind'] == _kindTardiness) return false;
+        return (l['status'] ?? '').toString().toLowerCase() == _filter;
+      }
+      return true;
+    }).toList();
   }
 
   String _fmtDays(double v) =>
       v % 1 == 0 ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+
+  /// 0.125 -> '0.125', 1.000 -> '1', matching the 3-decimal credit format.
+  String _fmtCredit(double v) {
+    final s = v.toStringAsFixed(3);
+    return s
+        .replaceFirst(RegExp(r'0+$'), '')
+        .replaceFirst(RegExp(r'\.$'), '');
+  }
 
   /// Turns the API's raw decimal ('2.000') into '2 days' / '1 day' / '0.5 day'.
   String _formatDays(dynamic raw) {
@@ -350,9 +394,16 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
       itemCount: logs.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, i) => logs[i]['_kind'] == _kindMonetization
-          ? _buildMonetizationTile(logs[i])
-          : _buildLeaveLogTile(logs[i]),
+      itemBuilder: (context, i) {
+        switch (logs[i]['_kind']) {
+          case _kindMonetization:
+            return _buildMonetizationTile(logs[i]);
+          case _kindTardiness:
+            return _buildTardinessTile(logs[i]);
+          default:
+            return _buildLeaveLogTile(logs[i]);
+        }
+      },
     );
   }
 
@@ -365,32 +416,71 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   }
 
   // ---------------------------------------------------------------------
-  // Filter
+  // Filters
   // ---------------------------------------------------------------------
 
   Widget _buildFilterRow() {
-    return SizedBox(
-      height: 58,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-        children: [
-          _chip('All', 'all'),
-          _chip('Approved', 'approved'),
-          _chip('Rejected', 'rejected'),
-          _chip('Cancelled', 'cancelled'),
-        ],
-      ),
+    return Column(
+      children: [
+        // Type row
+        SizedBox(
+          height: 52,
+          child: ListView(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.fromLTRB(16, 11, 16, 3),
+            children: [
+              _chip('All', _type == 'all', () => setState(() => _type = 'all')),
+              _chip(
+                'Leave',
+                _type == _kindApplication,
+                () => setState(() => _type = _kindApplication),
+              ),
+              _chip(
+                'Monetization',
+                _type == _kindMonetization,
+                () => setState(() => _type = _kindMonetization),
+              ),
+              _chip('Tardiness', _type == _kindTardiness, () {
+                setState(() {
+                  _type = _kindTardiness;
+                  _filter = 'all'; // status doesn't apply to tardiness
+                });
+              }),
+            ],
+          ),
+        ),
+        // Status row (hidden for tardiness, which has no status)
+        if (_type != _kindTardiness)
+          SizedBox(
+            height: 50,
+            child: ListView(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.fromLTRB(16, 3, 16, 9),
+              children: [
+                for (final s in const [
+                  'all',
+                  'approved',
+                  'rejected',
+                  'cancelled',
+                ])
+                  _chip(
+                    s[0].toUpperCase() + s.substring(1),
+                    _filter == s,
+                    () => setState(() => _filter = s),
+                  ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 
-  Widget _chip(String label, String value) {
-    final isSelected = _filter == value;
+  Widget _chip(String label, bool isSelected, VoidCallback onTap) {
     return Padding(
       padding: const EdgeInsets.only(right: 8),
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onTap: () => setState(() => _filter = value),
+        onTap: onTap,
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           decoration: BoxDecoration(
@@ -457,7 +547,9 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   }
 
   Widget _buildEmptyState() {
-    final message = _filter == 'all'
+    final message = _type == _kindTardiness
+        ? 'Tardiness and undertime recorded from your monthly attendance appears here.'
+        : _filter == 'all'
         ? 'Settled requests land here once HR has reviewed them.'
         : 'No $_filter requests yet.';
 
@@ -555,10 +647,10 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
     );
   }
 
-  /// The list mixes two kinds of request. Without a marker, "3 days" on a
+  /// The list mixes several kinds of record. Without a marker, "3 days" on a
   /// leave application and "20 requested · 15 approved" on a monetization
   /// read as the same kind of record.
-  Widget _kindBadge() {
+  Widget _kindBadge([String label = 'MONETIZATION']) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
@@ -566,7 +658,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
-        'MONETIZATION',
+        label,
         style: AppText.eyebrow(size: 8.5, color: AppColors.navy),
       ),
     );
@@ -820,8 +912,8 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
               const SizedBox(width: 8),
               Text(
                 isPartial
-                    ? '${_fmtDays(requested!)} requested · '
-                          '${_fmtDays(approved!)} approved'
+                    ? '${_fmtDays(requested)} requested · '
+                          '${_fmtDays(approved)} approved'
                     : _formatDays(approved ?? requested),
                 style: AppText.body(
                   size: 11.5,
@@ -842,7 +934,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
               ),
               child: Text(
                 'HR approved part of this request. The remaining '
-                '${_fmtDays(requested! - approved!)} day(s) stay in your balance.',
+                '${_fmtDays(requested - approved)} day(s) stay in your balance.',
                 style: AppText.body(
                   size: 11.5,
                   weight: FontWeight.w500,
@@ -857,6 +949,119 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
               reason.trim().isNotEmpty) ...[
             const SizedBox(height: 10),
             _reasonPanel(reason),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _stat(String label, String value) {
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            value,
+            style: AppText.body(
+              size: 13.5,
+              weight: FontWeight.w800,
+              color: AppColors.navyDark,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            style: AppText.body(
+              size: 11,
+              weight: FontWeight.w500,
+              color: AppColors.muted,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// One monthly attendance summary: late / undertime minutes, the VL days
+  /// deducted for them, absences, and any LWOP the balance couldn't absorb.
+  Widget _buildTardinessTile(Map<String, dynamic> item) {
+    int n(String k) => int.tryParse(item[k]?.toString() ?? '') ?? 0;
+    double d(String k) => double.tryParse(item[k]?.toString() ?? '') ?? 0;
+
+    final lateMin = n('late_am_minutes') + n('late_pm_minutes');
+    final underMin = n('undertime_am_minutes') + n('undertime_pm_minutes');
+    final deducted = d('tardiness_equivalent_days');
+    final lwop = d('lwop_days');
+    final absentWith = n('absent_with_leave_days');
+    final absentWithout = n('absent_without_leave_days');
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.schedule_rounded,
+                size: 16,
+                color: AppColors.amber,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${item['month']} ${item['year']}',
+                  style: AppText.body(
+                    size: 14.5,
+                    weight: FontWeight.w800,
+                    color: AppColors.navyDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          _kindBadge('TARDINESS'),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              _stat('Late', '$lateMin min'),
+              _stat('Undertime', '$underMin min'),
+              _stat('VL deducted', '${_fmtCredit(deducted)} day(s)'),
+            ],
+          ),
+          if (absentWith > 0 || absentWithout > 0) ...[
+            const SizedBox(height: 10),
+            _reasonPanel(
+              'Absent: $absentWith day(s) with leave · '
+              '$absentWithout day(s) without leave',
+            ),
+          ],
+          if (lwop > 0) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: AppColors.amber.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Text(
+                'Your VL balance couldn\'t cover the full deduction. '
+                '${_fmtCredit(lwop)} day(s) were recorded as leave without pay.',
+                style: AppText.body(
+                  size: 11.5,
+                  weight: FontWeight.w500,
+                  color: const Color(0xFF8A5A16),
+                  height: 1.4,
+                ),
+              ),
+            ),
           ],
         ],
       ),
