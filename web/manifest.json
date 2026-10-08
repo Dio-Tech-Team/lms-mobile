@@ -1,11 +1,11 @@
 {
-    "name": "lms_mobile",
-    "short_name": "lms_mobile",
+    "name": "LeaveSync",
+    "short_name": "LeaveSync",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#1B3A5C",
+    "theme_color": "#1B3A5C",
+    "description": "Leave Management System for LGU Echague",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
