@@ -795,6 +795,9 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
     final lwop = n('lwop_days');
     final absent = n('absent_without_leave_days');
     final vlDeducted = tardy - lwop;
+    // Absences charged to VL, and the days VL couldn't cover
+    final absenceCredits = n('absence_credits');
+    final absenceLwop = n('absence_lwop_days');
 
     final h = minutes ~/ 60;
     final m = minutes % 60;
@@ -869,16 +872,31 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
           ],
           if (absent > 0) ...[
             const SizedBox(height: 6),
-            Text(
-              '${_fmtDays(absent)} day(s) absent without leave',
-              style: AppText.body(
-                size: 12,
-                weight: FontWeight.w500,
-                color: AppColors.muted,
-              ),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${_fmtDays(absent)} day(s) absent without leave',
+                    style: AppText.body(
+                      size: 12,
+                      weight: FontWeight.w500,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ),
+                if (absenceCredits > 0)
+                  Text(
+                    '−${absenceCredits.toStringAsFixed(3)} VL',
+                    style: AppText.body(
+                      size: 11.5,
+                      weight: FontWeight.w800,
+                      color: AppColors.red,
+                    ),
+                  ),
+              ],
             ),
           ],
-          if (lwop > 0) ...[
+          if (lwop > 0 || absenceLwop > 0) ...[
             const SizedBox(height: 10),
             Container(
               width: double.infinity,
@@ -888,8 +906,14 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
                 borderRadius: BorderRadius.circular(9),
               ),
               child: Text(
-                '${lwop.toStringAsFixed(3)} day(s) of tardiness exceeded your '
-                'VL balance and became leave without pay.',
+                [
+                  if (absenceLwop > 0)
+                    '${_fmtDays(absenceLwop)} absent day(s) exceeded your '
+                        'VL balance and became leave without pay.',
+                  if (lwop > 0)
+                    '${lwop.toStringAsFixed(3)} day(s) of tardiness exceeded '
+                        'your VL balance and became leave without pay.',
+                ].join('\n'),
                 style: AppText.body(
                   size: 11.5,
                   weight: FontWeight.w500,
