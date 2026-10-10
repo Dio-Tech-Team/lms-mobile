@@ -41,6 +41,28 @@ class _ApplyForLeaveMonetizationsState
   /// leave applications, matching how the rest of the app splits them.
   List<dynamic> _pendingRequests = [];
 
+  // Common grounds for monetization. "Other" requires details.
+  static const List<String> _monetizationReasons = [
+    'Health or medical needs',
+    'Hospitalization',
+    'Educational expenses',
+    'Financial assistance (calamity or emergency)',
+  ];
+  static const String _otherReason = 'Other';
+
+  /// Null or '' = no reason picked
+  String? _reasonChoice;
+
+  /// Dropdown choice plus optional details, as one string for the API.
+  String? _buildReason() {
+    final details = _reasonController.text.trim();
+    final choice = (_reasonChoice ?? '').isEmpty ? null : _reasonChoice;
+
+    if (choice == null) return details.isEmpty ? null : details;
+    if (choice == _otherReason) return details.isEmpty ? null : details;
+    return details.isEmpty ? choice : '$choice — $details';
+  }
+
   int? _selectedConfigId;
   int? _cancellingId;
 
@@ -205,6 +227,12 @@ class _ApplyForLeaveMonetizationsState
       return;
     }
 
+    // "Other" alone says nothing — ask what it is
+    if (_reasonChoice == _otherReason &&
+        _reasonController.text.trim().isEmpty) {
+      _showSnack('Please specify the reason.', isError: true);
+      return;
+    }
     setState(() {
       _isSubmitting = true;
       _successMessage = null;
@@ -225,7 +253,7 @@ class _ApplyForLeaveMonetizationsState
         token: token,
         leaveConfigurationId: _selectedConfigId!,
         daysMonetized: days,
-        reason: _reasonController.text,
+        reason: _buildReason() ?? '',
       ).timeout(_networkTimeout);
 
       if (!mounted) return;
@@ -238,6 +266,7 @@ class _ApplyForLeaveMonetizationsState
         _daysController.clear();
         _reasonController.clear();
         setState(() {
+          _reasonChoice = null;
           _isSubmitting = false;
           _successMessage =
               result['message'] ??
@@ -794,16 +823,61 @@ class _ApplyForLeaveMonetizationsState
 
             _sectionCard(
               icon: Icons.notes_rounded,
-              label: 'Reason',
-              child: TextFormField(
-                controller: _reasonController,
-                maxLines: 4,
-                style: AppText.body(size: 13.5),
-                decoration: _fieldDecoration(
-                  hint:
-                      'Add a note for the HR admin reviewing this request '
-                      '(optional)',
-                ),
+              label: 'Reason (optional)',
+              child: Column(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F6FA),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        value: _reasonChoice,
+                        hint: Text(
+                          'Select a reason',
+                          style: AppText.body(
+                            size: 13.5,
+                            weight: FontWeight.w500,
+                            color: Colors.grey.shade400,
+                          ),
+                        ),
+                        icon: const Icon(
+                          Icons.keyboard_arrow_down_rounded,
+                          color: AppColors.muted,
+                        ),
+                        style: AppText.body(size: 13.5),
+                        items: [
+                          const DropdownMenuItem<String>(
+                            value: '',
+                            child: Text('No reason given'),
+                          ),
+                          ...[..._monetizationReasons, _otherReason].map(
+                            (r) => DropdownMenuItem<String>(
+                              value: r,
+                              child: Text(r, overflow: TextOverflow.ellipsis),
+                            ),
+                          ),
+                        ],
+                        onChanged: (value) =>
+                            setState(() => _reasonChoice = value),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextFormField(
+                    controller: _reasonController,
+                    maxLines: 3,
+                    style: AppText.body(size: 13.5),
+                    decoration: _fieldDecoration(
+                      hint: _reasonChoice == _otherReason
+                          ? 'Specify the reason'
+                          : 'Additional details for HR (optional)',
+                    ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 28),

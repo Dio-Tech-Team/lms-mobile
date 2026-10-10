@@ -38,6 +38,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
 
   static const String _kindApplication = 'application';
   static const String _kindMonetization = 'monetization';
+  static const String _kindDeduction = 'deduction';
 
   @override
   void initState() {
@@ -141,6 +142,9 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
           token: token,
           status: 'cancelled',
         ).timeout(_networkTimeout),
+        LeaveApplicationService.getMyAttendance(
+          token: token,
+        ).timeout(_networkTimeout),
       ]).timeout(_networkTimeout + const Duration(seconds: 2));
 
       final List<Map<String, dynamic>> logs = [];
@@ -149,11 +153,30 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
         final result = results[i];
         if (result['success'] != true) continue;
 
-        // First three calls are applications, last three monetizations.
-        final kind = i < 3 ? _kindApplication : _kindMonetization;
+        // Calls 0–2 applications, 3–5 monetizations, 6 DTR uploads.
+        final kind = i < 3
+            ? _kindApplication
+            : (i < 6 ? _kindMonetization : _kindDeduction);
 
         for (final row in List<dynamic>.from(result['data'] ?? [])) {
-          logs.add({...Map<String, dynamic>.from(row), '_kind': kind});
+          final entry = {...Map<String, dynamic>.from(row), '_kind': kind};
+
+          if (kind == _kindDeduction) {
+            final tardy =
+                double.tryParse('${row['tardiness_equivalent_days'] ?? 0}') ??
+                0;
+            final absent =
+                double.tryParse('${row['absent_without_leave_days'] ?? 0}') ??
+                0;
+            // A clean month cost the employee nothing — not history
+            if (tardy <= 0 && absent <= 0) continue;
+
+            // Sorted and filtered alongside requests by these two keys
+            entry['applied_at'] = row['uploaded_at'] ?? row['period'];
+            entry['status'] = 'deduction';
+          }
+
+          logs.add(entry);
         }
       }
 
@@ -350,9 +373,12 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
       itemCount: logs.length,
       separatorBuilder: (_, __) => const SizedBox(height: 10),
-      itemBuilder: (context, i) => logs[i]['_kind'] == _kindMonetization
-          ? _buildMonetizationTile(logs[i])
-          : _buildLeaveLogTile(logs[i]),
+      itemBuilder: (context, i) {
+        final kind = logs[i]['_kind'];
+        if (kind == _kindMonetization) return _buildMonetizationTile(logs[i]);
+        if (kind == _kindDeduction) return _buildDeductionTile(logs[i]);
+        return _buildLeaveLogTile(logs[i]);
+      },
     );
   }
 
@@ -379,6 +405,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
           _chip('Approved', 'approved'),
           _chip('Rejected', 'rejected'),
           _chip('Cancelled', 'cancelled'),
+          _chip('Deductions', 'deduction'),
         ],
       ),
     );
@@ -459,6 +486,8 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   Widget _buildEmptyState() {
     final message = _filter == 'all'
         ? 'Settled requests land here once HR has reviewed them.'
+        : _filter == 'deduction'
+        ? 'No tardiness or absence deductions on record.'
         : 'No $_filter requests yet.';
 
     return Padding(
@@ -558,7 +587,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
   /// The list mixes two kinds of request. Without a marker, "3 days" on a
   /// leave application and "20 requested · 15 approved" on a monetization
   /// read as the same kind of record.
-  Widget _kindBadge() {
+  Widget _kindBadge([String label = 'MONETIZATION']) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
       decoration: BoxDecoration(
@@ -566,7 +595,7 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
-        'MONETIZATION',
+        label,
         style: AppText.eyebrow(size: 8.5, color: AppColors.navy),
       ),
     );
@@ -746,6 +775,131 @@ class _LeaveLogsPageState extends State<LeaveLogsPage>
             ],
           ],
         ),
+      ),
+    );
+  }
+
+  /// One DTR upload that cost the employee something: tardiness taken
+  /// from VL, any part of it that ran past the balance (LWOP), and
+  /// absences without leave.
+  Widget _buildDeductionTile(Map<String, dynamic> item) {
+    double n(String key) => double.tryParse(item[key]?.toString() ?? '') ?? 0;
+
+    final minutes =
+        (n('late_am_minutes') +
+                n('late_pm_minutes') +
+                n('undertime_am_minutes') +
+                n('undertime_pm_minutes'))
+            .round();
+    final tardy = n('tardiness_equivalent_days');
+    final lwop = n('lwop_days');
+    final absent = n('absent_without_leave_days');
+    final vlDeducted = tardy - lwop;
+
+    final h = minutes ~/ 60;
+    final m = minutes % 60;
+    final time = [if (h > 0) '${h}h', if (m > 0) '${m}m'].join(' ');
+
+    const accent = AppColors.amber;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.hairline),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.schedule_rounded, size: 16, color: accent),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '${item['month'] ?? ''} ${item['year'] ?? ''} DTR',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppText.body(
+                    size: 14.5,
+                    weight: FontWeight.w800,
+                    color: AppColors.navyDark,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          _kindBadge('DTR DEDUCTION'),
+          const SizedBox(height: 10),
+          Text(
+            'Posted ${_singleDate(item['uploaded_at']?.toString())}',
+            style: AppText.body(
+              size: 12.5,
+              weight: FontWeight.w500,
+              color: AppColors.navyDark,
+            ),
+          ),
+          if (minutes > 0) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '$time late/undertime',
+                    style: AppText.body(
+                      size: 12,
+                      weight: FontWeight.w500,
+                      color: AppColors.muted,
+                    ),
+                  ),
+                ),
+                if (vlDeducted > 0)
+                  Text(
+                    '−${vlDeducted.toStringAsFixed(3)} VL',
+                    style: AppText.body(
+                      size: 11.5,
+                      weight: FontWeight.w800,
+                      color: AppColors.red,
+                    ),
+                  ),
+              ],
+            ),
+          ],
+          if (absent > 0) ...[
+            const SizedBox(height: 6),
+            Text(
+              '${_fmtDays(absent)} day(s) absent without leave',
+              style: AppText.body(
+                size: 12,
+                weight: FontWeight.w500,
+                color: AppColors.muted,
+              ),
+            ),
+          ],
+          if (lwop > 0) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: accent.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: Text(
+                '${lwop.toStringAsFixed(3)} day(s) of tardiness exceeded your '
+                'VL balance and became leave without pay.',
+                style: AppText.body(
+                  size: 11.5,
+                  weight: FontWeight.w500,
+                  color: const Color(0xFF8A5A16),
+                  height: 1.4,
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

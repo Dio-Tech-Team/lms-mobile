@@ -22,6 +22,42 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
   final _formKey = GlobalKey<FormState>();
   final _reasonController = TextEditingController();
 
+  // Same lists as the web filing form. Types not listed only get "Other".
+  static const Map<String, List<String>> _leaveReasons = {
+    'VL': [
+      'Personal matters',
+      'Family matters',
+      'Vacation (within the Philippines)',
+      'Vacation (abroad)',
+    ],
+    'SL': [
+      'Illness',
+      'Medical check-up',
+      'Hospitalization',
+      'Recovery after procedure',
+    ],
+    'FL': ['Mandatory leave'],
+  };
+  static const String _otherReason = 'Other';
+
+  /// Null or '' = no reason picked
+  String? _reasonChoice;
+
+  List<String> get _reasonOptions => [
+    ...(_leaveReasons[_selectedLeaveType?.code] ?? const <String>[]),
+    _otherReason,
+  ];
+
+  /// Dropdown choice plus optional details, as one string for the API.
+  String? _buildReason() {
+    final details = _reasonController.text.trim();
+    final choice = (_reasonChoice ?? '').isEmpty ? null : _reasonChoice;
+
+    if (choice == null) return details.isEmpty ? null : details;
+    if (choice == _otherReason) return details.isEmpty ? null : details;
+    return details.isEmpty ? choice : '$choice — $details';
+  }
+
   LeaveTypeOption? _selectedLeaveType;
   DateTime? _startDate;
   DateTime? _endDate;
@@ -49,14 +85,25 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
 
   Future<void> _pickDate({required bool isStart}) async {
     final now = DateTime.now();
-    final isVL = _selectedLeaveType?.code == 'VL';
-    final earliestAllowed = isVL
-        ? DateTime(now.year, now.month, now.day + 5)
-        : DateTime(now.year, now.month, now.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final code = _selectedLeaveType?.code;
 
+    // VL: 5 days ahead. SL: filed after the absence, so past dates are
+    // allowed (back to the start of last year). Others: from today.
+    final DateTime earliestAllowed;
+    if (code == 'VL' || code == 'WL') {
+      earliestAllowed = DateTime(now.year, now.month, now.day + 5);
+    } else if (code == 'SL') {
+      earliestAllowed = DateTime(now.year - 1, 1, 1);
+    } else {
+      earliestAllowed = today;
+    }
+
+    // Open the calendar on today for SL, not on the earliest allowed date
+    final defaultDate = code == 'SL' ? today : earliestAllowed;
     final initial = isStart
-        ? (_startDate ?? earliestAllowed)
-        : (_endDate ?? _startDate ?? earliestAllowed);
+        ? (_startDate ?? defaultDate)
+        : (_endDate ?? _startDate ?? defaultDate);
     final picked = await showDatePicker(
       context: context,
       initialDate: initial.isBefore(earliestAllowed)
@@ -163,6 +210,13 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
       return;
     }
 
+    // "Other" alone says nothing — ask what it is
+    if (_reasonChoice == _otherReason &&
+        _reasonController.text.trim().isEmpty) {
+      setState(() => _errorMessage = 'Please specify the reason.');
+      return;
+    }
+
     final days = _numberOfDays.toDouble();
     final selected = _selectedLeaveType!;
 
@@ -173,7 +227,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
       );
       return;
     }
-    if (selected.code == 'VL') {
+    if (selected.code == 'VL' || selected.code == 'WL') {
       final minStartDate = DateTime(
         DateTime.now().year,
         DateTime.now().month,
@@ -182,7 +236,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
       if (_startDate!.isBefore(minStartDate)) {
         setState(
           () => _errorMessage =
-              'Vacation Leave must be filed at least 5 days before the start date.',
+              '${selected.name} must be filed at least 5 days before the start date.',
         );
         return;
       }
@@ -295,9 +349,7 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
         endDate: _endDate!,
         daysApplied: days,
         token: token,
-        reason: _reasonController.text.trim().isEmpty
-            ? null
-            : _reasonController.text.trim(),
+        reason: _buildReason(),
       ).timeout(_networkTimeout);
 
       if (!mounted) return;
@@ -415,7 +467,16 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
                               )
                               .toList(),
                           onChanged: (val) {
-                            setState(() => _selectedLeaveType = val);
+                            setState(() {
+                              // Date limits differ by type, so start over
+                              if (val?.code != _selectedLeaveType?.code) {
+                                _startDate = null;
+                                _endDate = null;
+                                // A VL reason makes no sense on SL
+                                _reasonChoice = null;
+                              }
+                              _selectedLeaveType = val;
+                            });
                             _autoFillEndDateIfNeeded();
                             _schedulePreview();
                           },
@@ -552,17 +613,56 @@ class _ApplyForLeaveState extends State<ApplyForLeave> {
 
                       _sectionCard(
                         icon: Icons.notes_rounded,
-                        label: 'Reason',
-                        child: TextFormField(
-                          controller: _reasonController,
-                          maxLines: 4,
-                          style: GoogleFonts.nunito(
-                            fontSize: 13.5,
-                            color: _text,
-                          ),
-                          decoration: _fieldDecoration(
-                            hint: 'Briefly describe your reason for leave',
-                          ),
+                        label: 'Reason (optional)',
+                        child: Column(
+                          children: [
+                            DropdownButtonFormField<String>(
+                              value: _reasonChoice,
+                              isExpanded: true,
+                              decoration: _fieldDecoration(
+                                hint: 'Select a reason',
+                              ),
+                              icon: const Icon(
+                                Icons.keyboard_arrow_down_rounded,
+                                color: _muted,
+                              ),
+                              style: GoogleFonts.nunito(
+                                color: _text,
+                                fontSize: 13.5,
+                              ),
+                              items: [
+                                const DropdownMenuItem(
+                                  value: '',
+                                  child: Text('No reason given'),
+                                ),
+                                ..._reasonOptions.map(
+                                  (r) => DropdownMenuItem(
+                                    value: r,
+                                    child: Text(
+                                      r,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                              onChanged: (val) =>
+                                  setState(() => _reasonChoice = val),
+                            ),
+                            const SizedBox(height: 12),
+                            TextFormField(
+                              controller: _reasonController,
+                              maxLines: 3,
+                              style: GoogleFonts.nunito(
+                                fontSize: 13.5,
+                                color: _text,
+                              ),
+                              decoration: _fieldDecoration(
+                                hint: _reasonChoice == _otherReason
+                                    ? 'Specify the reason'
+                                    : 'Additional details (optional)',
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 28),

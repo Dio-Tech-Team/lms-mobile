@@ -105,6 +105,47 @@ class LeaveApplicationService {
     }
   }
 
+  /// The employee's own DTR uploads: tardiness, absences and any LWOP.
+  /// Reversed uploads are deleted on the backend, so they never appear.
+  static Future<Map<String, dynamic>> getMyAttendance({
+    required String token,
+    int? year,
+  }) async {
+    final uri = Uri.parse(
+      '$baseUrl/my-attendance',
+    ).replace(queryParameters: year != null ? {'year': '$year'} : null);
+
+    try {
+      final response = await http.get(
+        uri,
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+      );
+
+      Map<String, dynamic> body = {};
+      try {
+        body = jsonDecode(response.body) as Map<String, dynamic>;
+      } catch (_) {}
+
+      if (response.statusCode == 200) {
+        return {'success': true, 'data': body['data'] ?? []};
+      }
+      return {
+        'success': false,
+        'message':
+            body['message'] ??
+            'Failed to load attendance (${response.statusCode}).',
+      };
+    } catch (e) {
+      return {
+        'success': false,
+        'message': 'Network error: Unable to connect to server.',
+      };
+    }
+  }
+
   /// Dry run: what the backend will actually count for this range, and
   /// what it does to the balance. Used to warn before submitting rather
   /// than after approval.
