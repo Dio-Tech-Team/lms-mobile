@@ -36,6 +36,12 @@ class ApiService {
           "token": data["token"],
           "user": data["user"],
         };
+      } else if (response.statusCode == 429) {
+        return {
+          "success": false,
+          "message":
+              "Too many login attempts. Please wait a minute and try again.",
+        };
       } else if (response.statusCode == 401) {
         return {
           "success": false,
@@ -85,6 +91,11 @@ class ApiService {
 
       if (response.statusCode == 200) {
         return {"success": true, "token": data["token"], "user": data["user"]};
+      } else if (response.statusCode == 429) {
+        return {
+          "success": false,
+          "message": "Too many attempts. Please wait a minute and try again.",
+        };
       } else if (response.statusCode == 422) {
         final errors = data["errors"] as Map<String, dynamic>?;
         final firstError = errors?.values.first?.first ?? "Invalid code.";
@@ -128,6 +139,11 @@ class ApiService {
         return {
           "success": true,
           "message": data["message"] ?? "A new code has been sent.",
+        };
+      } else if (response.statusCode == 429) {
+        return {
+          "success": false,
+          "message": "Too many attempts. Please wait a minute and try again.",
         };
       } else if (response.statusCode == 422) {
         final errors = data["errors"] as Map<String, dynamic>?;
